@@ -39,6 +39,8 @@ class FakeProvider:
     """A deterministic, network-free provider implementing the full contract."""
 
     name = "fake"
+    signature_header = "X-Fake-Signature"
+    event_id_header = "X-Fake-Event-Id"
 
     def __init__(self, webhook_secret: str = "whsec_fake") -> None:
         self._secret = webhook_secret.encode("utf-8")

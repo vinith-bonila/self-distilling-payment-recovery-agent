@@ -115,6 +115,8 @@ class RazorpayAdapter:
     """Razorpay implementation of :class:`~providers.base.PaymentProvider`."""
 
     name = "razorpay"
+    signature_header = "X-Razorpay-Signature"
+    event_id_header = "X-Razorpay-Event-Id"
 
     def __init__(
         self,

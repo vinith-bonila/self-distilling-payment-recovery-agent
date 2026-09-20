@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     stripe_api_key: str = ""
     stripe_webhook_secret: str = "whsec_fake_stripe"
 
+    # Fake provider webhook secret (offline runs and tests).
+    fake_webhook_secret: str = "whsec_fake"
+
     # LLM (Groq). An empty key is fine offline: the stub client needs no network.
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
