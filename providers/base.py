@@ -1,60 +1,82 @@
-"""Provider interface and the normalised failure-reason enum.
+"""The ``PaymentProvider`` interface.
 
-Phase 1 declares only what the skeleton needs (the enum, a minimal event shape,
-and signature verification). The full :class:`PaymentProvider` interface and the
-shared conformance suite arrive in Phase 3.
+Every adapter (fake, Razorpay, later Stripe) implements this structural
+protocol. All inputs and outputs use the normalised types in
+:mod:`providers.types`; adapters never expose provider-native objects, strings
+or amounts across this boundary.
 """
 from __future__ import annotations
 
-import enum
-from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
-
-class FailureReason(enum.Enum):
-    """Normalised payment-failure reasons shared across all providers.
-
-    Adapters translate their own provider-specific strings onto this closed
-    enum. Layers above ``providers`` reason only in terms of these members.
-    """
-
-    INSUFFICIENT_FUNDS = "insufficient_funds"
-    CARD_DECLINED = "card_declined"
-    EXPIRED_CARD = "expired_card"
-    AUTHENTICATION_REQUIRED = "authentication_required"
-    PROCESSING_ERROR = "processing_error"
-    INVALID_DETAILS = "invalid_details"
-    RISK_BLOCKED = "risk_blocked"
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True)
-class NormalisedEvent:
-    """A provider event after signature check and normalisation.
-
-    Kept intentionally small in Phase 1; extended in Phases 3-4.
-    """
-
-    provider: str
-    event_id: str
-    event_type: str
-    payment_id: str
-    amount_inr: float
-    failure_reason: FailureReason
-    raw: dict[str, Any] = field(default_factory=dict)
+# Re-exported so callers can import the whole normalised vocabulary from
+# ``providers.base`` if they prefer a single import site.
+from providers.types import (  # noqa: F401
+    CustomerHistory,
+    EventType,
+    FailureReason,
+    NormalisedEvent,
+    Order,
+    OrderStatus,
+    Payment,
+    PaymentLink,
+    PaymentLinkStatus,
+    PaymentMethod,
+    PaymentStatus,
+    Refund,
+    RefundStatus,
+)
 
 
 @runtime_checkable
 class PaymentProvider(Protocol):
-    """Interface every payment-provider adapter implements.
+    """Behavioural contract implemented by every provider adapter.
 
-    Phase 1 declares only signature verification; Phase 3 adds event parsing,
-    payment/order/customer fetches, payment-link creation and refunds, plus a
-    conformance suite every adapter must pass identically.
+    The conformance suite (:mod:`providers.conformance`) exercises this contract
+    identically against every adapter, with all network calls mocked.
     """
 
     name: str
 
     def verify_signature(self, payload: bytes, signature: str) -> bool:
-        """Return ``True`` iff ``signature`` authenticates ``payload``."""
+        """Return ``True`` iff ``signature`` authenticates the raw ``payload``."""
+        ...
+
+    def parse_event(
+        self, payload: bytes, *, event_id: str | None = None
+    ) -> NormalisedEvent:
+        """Normalise a raw webhook body into a :class:`NormalisedEvent`.
+
+        ``event_id`` may be supplied by the caller (e.g. from a provider header);
+        adapters derive a deterministic one from the payload when it is absent.
+        """
+        ...
+
+    def get_payment(self, payment_id: str) -> Payment:
+        """Fetch a payment. Raises ``ResourceNotFound`` if it does not exist."""
+        ...
+
+    def get_order(self, order_id: str) -> Order:
+        """Fetch an order. Raises ``ResourceNotFound`` if it does not exist."""
+        ...
+
+    def get_customer_history(self, customer_id: str) -> CustomerHistory:
+        """Fetch aggregate payment history for a customer."""
+        ...
+
+    def create_payment_link(
+        self,
+        amount_inr: float,
+        *,
+        description: str = "",
+        reference_id: str | None = None,
+    ) -> PaymentLink:
+        """Create a payment link the customer can use to retry payment."""
+        ...
+
+    def refund_payment(
+        self, payment_id: str, amount_inr: float, idempotency_key: str
+    ) -> Refund:
+        """Refund a payment. ``idempotency_key`` ties the call to the guardrail
+        idempotency record in ``agentcore``."""
         ...
