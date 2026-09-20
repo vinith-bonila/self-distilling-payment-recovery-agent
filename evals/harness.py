@@ -81,6 +81,7 @@ class EvalResult:
     summary: dict[str, Any]
     series: list[dict[str, Any]]
     retry_sweep: list[dict[str, Any]]
+    distillation: dict[str, Any] | None = None
 
 
 def _gt_features(case: SyntheticCase) -> gt.GroundTruthFeatures:
@@ -232,6 +233,66 @@ def run_eval(
         summary=_summarize(records, simulator, retry_budget),
         series=_series(records, n),
         retry_sweep=_retry_sweep(records, simulator),
+    )
+
+
+def run_eval_distilled(
+    n: int = 500,
+    seed: int = 42,
+    retry_budget: int = DEFAULT_RETRY_BUDGET,
+    *,
+    database_url: str | None = None,
+) -> EvalResult:
+    """Same deterministic eval as :func:`run_eval`, with streaming distillation.
+
+    Rules distilled from successful agent trajectories enter SHADOW, are promoted
+    when they meet the principled thresholds, and are demoted when their recent
+    recovery degrades. Fully offline. Nothing about the generator, simulator,
+    ground truth, seed or thresholds differs from the baseline.
+    """
+    from recovery.distiller import PaymentDistiller
+
+    cases = generate_cases(n, seed)
+    db_url = database_url or f"sqlite:///{tempfile.mkdtemp()}/eval_distill.db"
+    init_db(db_url)
+    schema = payment_rule_schema()
+    repo = RuleRepository(schema)
+    if not repo.active_rules():
+        seed_rules(repo)
+    router = PolicyRouter(repo)
+    simulator = DeterministicCustomerSimulator()
+    llm = StubLLMClient()
+    settings = Settings(_env_file=None)
+    distiller = PaymentDistiller(repo, schema, llm, settings)
+
+    records: list[Record] = []
+    for case in cases:
+        record = _process(case, router, simulator, llm, settings, retry_budget)
+        records.append(record)
+        if record.path != "control":
+            distiller.observe(
+                _observable_context(case),
+                record.action,
+                record.recovered,
+                from_agent=(record.path == "llm"),
+                source_id=case.payment_id,
+            )
+        distiller.step(case.index + 1)
+
+    summary = _summarize(records, simulator, retry_budget)
+    summary["invalid_rule_proposals"] = distiller.log.invalid_proposals
+    distillation = {
+        "shadow_created": distiller.log.shadow_created,
+        "promoted": distiller.log.promoted,
+        "demoted": distiller.log.demoted,
+        "blocked_high_value_refund": distiller.log.blocked_high_value_refund,
+        "invalid_proposals": distiller.log.invalid_proposals,
+        "avg_shadow_agreement": distiller.average_shadow_agreement(),
+    }
+    return EvalResult(
+        n=n, seed=seed, retry_budget=retry_budget, drift_index=drift_index(n),
+        records=records, summary=summary, series=_series(records, n),
+        retry_sweep=_retry_sweep(records, simulator), distillation=distillation,
     )
 
 

@@ -54,6 +54,20 @@ class StubLLMClient:
         max_tokens: int = 1024,
     ) -> LLMResponse:
         state = self._read_state(messages)
+        if state.get("task") == "propose_rule":
+            # Proposer mode: return the grammar-shaped suggestion derived from
+            # the cluster. A real model would author this from situation+schema;
+            # the output is still validated by the grammar trust boundary.
+            text = json.dumps(state.get("suggested", {}))
+            prompt_chars = sum(len(m.content) for m in messages)
+            return LLMResponse(
+                text=text,
+                prompt_tokens=prompt_chars // 4,
+                completion_tokens=len(text) // 4,
+                latency_ms=0.0,
+                model=self.model,
+                cached=False,
+            )
         text = json.dumps(self._decide(state))
         prompt_chars = sum(len(m.content) for m in messages)
         return LLMResponse(

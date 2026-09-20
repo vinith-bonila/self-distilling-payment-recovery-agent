@@ -1,40 +1,43 @@
-# Evaluation results — pre-distillation baseline
+# Evaluation results — baseline vs distillation
 
-> **Synthetic.** These numbers come from a synthetic generator with a hidden ground-truth model and a frozen customer simulator. They demonstrate the *mechanism*; they are not real production outcomes.
+> **Synthetic.** Numbers come from a synthetic generator with a hidden ground-truth model and a frozen customer simulator. They demonstrate the *mechanism*, not real production outcomes.
 
-> **Modelled cost.** Cost figures are MODELLED = token accounting × a configured price, not real spend.
+> **Modelled cost.** Cost = MODELLED token accounting × a configured price, not real spend.
 
 
-- Cases: **500** (seed 42)
-- Treated: 447 · Control (holdout): 53
-- Routed to LLM: 405 · Resolved by deterministic rules: 42
-- Concept drift at case index: 250
-- Retry budget used for the run: 3
+Same deterministic run for both columns: 500 cases, seed 42, drift at index 250. Only distillation differs; the generator, simulator, ground truth, seed and thresholds are identical.
 
-## Recovery — raw vs incremental vs control
+## Side by side
 
-| Metric | Value |
-| --- | --- |
-| Raw recovery (treated) | 74.9% (95% CI 70.7%–78.7%, n=447) |
-| Control recovery (natural, no action) | 13.2% (95% CI 6.5%–24.8%, n=53) |
-| **Incremental recovery vs control** | **61.7%** |
+| Metric | Baseline (Phase 6) | Distilled (Phase 7) |
+| --- | --- | --- |
+| Raw recovery (treated) | 74.9% (95% CI 70.7%–78.7%, n=447) | 74.9% (95% CI 70.7%–78.7%, n=447) |
+| Control recovery (natural) | 13.2% (95% CI 6.5%–24.8%, n=53) | 13.2% (95% CI 6.5%–24.8%, n=53) |
+| Incremental vs control | 61.7% | 61.7% |
+| **LLM share of traffic** | 90.6% | **55.9%** |
+| **Modelled cost / 1,000** | $1.4971 | **$0.9238** |
+| Wrong-tool rate | 12.5% | 12.5% |
+| Latency p50 / p95 (modelled) | 2461/2472 ms | 2454/2472 ms |
+| Invalid rule proposals rejected | 0 | 0 |
+| Guardrail trips | (none) | (none) |
 
-Treated and control 95% intervals **do not overlap** (treated recovery is distinguishable from natural).
+### Held flat?
 
-## Traffic, quality, cost
+Baseline and distilled recovery 95% Wilson intervals **overlap — recovery held flat** by the predefined criterion, while LLM share fell from 90.6% to 55.9% and modelled cost from $1.4971 to $0.9238 per 1,000.
 
-| Metric | Value |
-| --- | --- |
-| LLM share of treated traffic | 90.6% (95% CI 87.5%–93.0%, n=447) |
-| Wrong-tool rate (vs hidden ground truth) | 12.5% (95% CI 9.8%–15.9%, n=447) |
-| Modelled cost per 1,000 failures | $1.4971 (token accounting × configured price) |
-| Latency p50 / p95 (modelled) | 2461 ms / 2472 ms |
-| Invalid rule proposals rejected | 0 |
-| Guardrail trips by type | {'(none)': 0} |
+## Distillation activity
 
-## Retry-budget analysis
+- Shadow candidates created: 6 — ['distilled:failure_reason=insufficient_funds', 'distilled:failure_reason=card_declined', 'distilled:failure_reason=expired_card', 'distilled:failure_reason=processing_error', 'distilled:failure_reason=authentication_required', 'distilled:failure_reason=unknown']
+- Average shadow agreement with the agent: 1.000
+- Promoted rules:
+    - `distilled:failure_reason=insufficient_funds` (support 39, agreement 1.0, recovery 0.795)
+    - `distilled:failure_reason=card_declined` (support 31, agreement 1.0, recovery 0.71)
+    - `distilled:failure_reason=expired_card` (support 33, agreement 1.0, recovery 0.758)
+- Demoted rules:
+    - `distilled:failure_reason=card_declined` — recent recovery 9/30 upper bound below 0.5
+- High-value refund rules blocked from auto-promotion: (none)
 
-What the customer simulator implies about how many retry attempts to allow.
+## Retry-budget analysis (distilled run)
 
 | Retry budget | Recovery (treated) | Optimal |
 | --- | --- | --- |
@@ -49,6 +52,6 @@ What the customer simulator implies about how many retry attempts to allow.
 
 **Empirically discovered optimal retry budget: 4.**
 
-## Interpretation
+## Honest reading
 
-This is the baseline *before* distillation. LLM share is high because only two seed rules resolve traffic deterministically. Phase 7 should drive LLM share down while incremental recovery holds within overlapping confidence bands; a rule for the drifting cluster should demote at the drift point. If the curve does not move, that will be reported here.
+Distillation converted validated agent behaviour into deterministic rules that took over a large share of traffic with recovery held flat and modelled cost down. Not every reason promoted within the stream (lower-frequency reasons did not accumulate the required shadow support in 500 cases), so LLM share falls but does not reach zero. The card_declined rule demoted automatically at the concept-drift point, as designed. In this environment the hidden context-dependence flips the correct action for only a small fraction of cases, so reason-level rules suffice for most traffic and the wrong-tool rate is unchanged (rules replicate the agent, they do not out-think it).

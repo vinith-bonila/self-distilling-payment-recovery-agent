@@ -15,8 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from evals.harness import optimal_retry_budget, run_eval
-from evals.report import write_cost_curve_png, write_results_md
+from evals.harness import optimal_retry_budget, run_eval, run_eval_distilled
+from evals.report import write_comparison_md, write_cost_curve_png
 
 EVALS_DIR = Path(__file__).resolve().parent
 
@@ -46,23 +46,30 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     n = args.n if args.n is not None else (2000 if args.full else 500)
-    result = run_eval(n=n, seed=args.seed, retry_budget=args.retry_budget)
+    baseline = run_eval(n=n, seed=args.seed, retry_budget=args.retry_budget)
+    distilled = run_eval_distilled(n=n, seed=args.seed, retry_budget=args.retry_budget)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    md_path = write_results_md(result, out_dir / "results.md")
-    png_path = write_cost_curve_png(result, out_dir / "cost_curve.png")
-
-    s = result.summary
-    print(f"cases={s['n_total']} treated={s['n_treated']} control={s['n_control']}")
-    print(
-        f"raw recovery={s['raw_recovery'].rate:.1%} "
-        f"control={s['control_recovery'].rate:.1%} "
-        f"incremental={s['incremental_recovery']:.1%}"
+    md_path = write_comparison_md(baseline, distilled, out_dir / "results.md")
+    png_path = write_cost_curve_png(
+        distilled, out_dir / "cost_curve.png", title="With distillation over simulated time"
     )
-    print(f"LLM share={s['llm_share'].rate:.1%}  wrong-tool={s['wrong_tool_rate'].rate:.1%}")
-    print(f"modelled cost/1000=${s['modelled_cost_per_1000_usd']:.4f}")
-    print(f"optimal retry budget={optimal_retry_budget(result.retry_sweep)}")
+
+    b, d = baseline.summary, distilled.summary
+    dd = distilled.distillation or {}
+    print(f"cases={d['n_total']} treated={d['n_treated']} control={d['n_control']}")
+    print(
+        f"recovery baseline={b['raw_recovery'].rate:.1%} -> distilled={d['raw_recovery'].rate:.1%}"
+    )
+    print(f"LLM share {b['llm_share'].rate:.1%} -> {d['llm_share'].rate:.1%}")
+    print(
+        f"modelled cost/1000 ${b['modelled_cost_per_1000_usd']:.4f} -> "
+        f"${d['modelled_cost_per_1000_usd']:.4f}"
+    )
+    print(f"promoted={[p['rule_key'] for p in dd.get('promoted', [])]}")
+    print(f"demoted={[r['rule_key'] for r in dd.get('demoted', [])]}")
+    print(f"optimal retry budget={optimal_retry_budget(distilled.retry_sweep)}")
     print(f"wrote {md_path} and {png_path}")
 
     if not args.no_open:
