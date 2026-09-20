@@ -131,21 +131,29 @@ def build_tools(
             ),
         )
     )
+    def build_refund_action(_args: Mapping[str, Any]) -> Action:
+        # Full refund only. The amount is derived server-side from the
+        # authoritative payment record, never from model input: the model may
+        # ask to refund, but it cannot choose (or inflate) the amount. Approval,
+        # spend-cap and idempotency all operate on this server-derived amount.
+        authoritative_amount = provider.get_payment(case.payment_id).amount_inr
+        key = f"refund:{case.payment_id}"
+        return Action(
+            name="refund",
+            subject_id=subject,
+            idempotency_key=key,
+            cost=authoritative_amount,
+            params={"amount_inr": authoritative_amount, "idempotency_key": key},
+        )
+
     registry.add(
         ToolSpec(
             "refund_payment",
-            "Refund the failed payment. Subject to the approval gate and spend cap.",
-            {"amount_inr": ToolParam(_NUM)},
-            build_action=lambda a: Action(
-                name="refund",
-                subject_id=subject,
-                idempotency_key=f"refund:{case.payment_id}",
-                cost=float(a["amount_inr"]),
-                params={
-                    "amount_inr": float(a["amount_inr"]),
-                    "idempotency_key": f"refund:{case.payment_id}",
-                },
-            ),
+            "Issue a FULL refund of the failed payment. The amount is derived "
+            "server-side from the payment record; you cannot set it. Subject to "
+            "the approval gate, spend cap and idempotency.",
+            {},  # no model-controlled parameters
+            build_action=build_refund_action,
         )
     )
     registry.add(

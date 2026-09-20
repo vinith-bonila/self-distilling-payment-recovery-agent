@@ -173,7 +173,18 @@ class AgentLoop:
 
             if tool.is_effect:
                 assert tool.build_action is not None
-                action = tool.build_action(args)
+                try:
+                    action = tool.build_action(args)
+                except Exception as exc:  # noqa: BLE001 — fail safe, keep trajectory
+                    observation = {"error": "effect_unavailable", "detail": str(exc)}
+                    self._record(
+                        trajectory, index, decision.thought, decision.tool, args,
+                        "rejected_effect_error", observation, response,
+                    )
+                    history.append(
+                        {"tool": decision.tool, "args": args, "observation": observation}
+                    )
+                    continue
                 exec_result = self._executor.execute(action)
                 resolution_status = exec_result.status
                 trajectory.resolution_action = action.name

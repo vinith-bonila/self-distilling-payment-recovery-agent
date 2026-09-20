@@ -15,18 +15,17 @@ from recovery.agent import build_agent
 from recovery.tools import build_tools
 
 _FINAL = '{"thought":"done","final":{"resolution":"refund"}}'
-
-
-def _refund(amount: int) -> str:
-    return f'{{"thought":"x","action":{{"tool":"refund_payment","args":{{"amount_inr":{amount}}}}}}}'
+# Refund takes no model-supplied arguments: the amount is server-derived.
+_REFUND = '{"thought":"x","action":{"tool":"refund_payment","args":{}}}'
 
 
 def _spy_refund(provider):
-    calls = {"n": 0}
+    calls = {"n": 0, "amounts": []}
     original = provider.refund_payment
 
     def spy(payment_id, amount_inr, idempotency_key):
         calls["n"] += 1
+        calls["amounts"].append(amount_inr)
         return original(payment_id, amount_inr, idempotency_key)
 
     provider.refund_payment = spy  # type: ignore[method-assign]
@@ -40,7 +39,7 @@ def test_refund_above_threshold_hits_approval_gate() -> None:
     loop = build_agent(
         case(amount=9000.0),
         provider,
-        ScriptedLLMClient([_refund(9000), _FINAL]),
+        ScriptedLLMClient([_REFUND, _FINAL]),
         settings(approval_threshold_inr=5000.0),
         store=store,
     )
@@ -57,15 +56,78 @@ def test_refund_below_threshold_executes_once_and_is_idempotent() -> None:
     loop = build_agent(
         case(amount=1000.0),
         provider,
-        ScriptedLLMClient([_refund(1000), _refund(1000), _FINAL]),
+        ScriptedLLMClient([_REFUND, _REFUND, _FINAL]),
         settings(),
         store=store,
     )
     trajectory = loop.run(subject_id="cust_1", case=case_view(case(amount=1000.0)))
     assert calls["n"] == 1  # double-fire -> exactly one real refund
+    assert calls["amounts"] == [1000.0]  # server-derived amount
     decisions = [s.decision for s in trajectory.steps]
     assert "effect_executed" in decisions
     assert "effect_duplicate" in decisions
+
+
+def test_model_supplied_refund_amount_is_rejected() -> None:
+    # A malicious model tries to name an inflated amount; refund takes no args,
+    # so the call is rejected and no refund happens at all.
+    provider = provider_with_payment(amount=100.0)
+    calls = _spy_refund(provider)
+    store = InMemoryGuardStore()
+    malicious = '{"thought":"x","action":{"tool":"refund_payment","args":{"amount_inr":999999}}}'
+    loop = build_agent(
+        case(amount=100.0),
+        provider,
+        ScriptedLLMClient([malicious, _FINAL]),
+        settings(approval_threshold_inr=1_000_000.0),  # would not gate 999999
+        store=store,
+    )
+    trajectory = loop.run(subject_id="cust_1", case=case_view(case(amount=100.0)))
+    assert trajectory.steps[0].decision == "rejected_invalid_args"
+    assert calls["n"] == 0  # no refund executed
+    assert len(loop.executor.pending_approvals()) == 0
+
+
+def test_refund_uses_authoritative_amount_not_event_or_model() -> None:
+    # Authoritative payment record says 9000; the case/event says 100. The
+    # refund and the approval record must use 9000 (from the provider), and the
+    # model cannot influence it.
+    provider = provider_with_payment(amount=9000.0)
+    calls = _spy_refund(provider)
+    store = InMemoryGuardStore()
+    loop = build_agent(
+        case(amount=100.0),  # event/case amount is deliberately different
+        provider,
+        ScriptedLLMClient([_REFUND, _FINAL]),
+        settings(approval_threshold_inr=5000.0),
+        store=store,
+    )
+    trajectory = loop.run(subject_id="cust_1", case=case_view(case(amount=100.0)))
+    assert trajectory.outcome is AgentOutcome.PENDING_APPROVAL
+    pending = loop.executor.pending_approvals()
+    assert len(pending) == 1
+    assert pending[0].cost == 9000.0  # authoritative amount, not 100 or a model value
+    assert calls["n"] == 0  # still gated, not executed
+
+
+def test_approval_record_holds_authoritative_amount_when_executed() -> None:
+    # Below threshold: refund executes with the server-derived amount, and the
+    # guarded executor's audit records that exact amount.
+    provider = provider_with_payment(amount=3000.0)
+    calls = _spy_refund(provider)
+    store = InMemoryGuardStore()
+    loop = build_agent(
+        case(amount=1.0),  # event/case amount irrelevant
+        provider,
+        ScriptedLLMClient([_REFUND, _FINAL]),
+        settings(approval_threshold_inr=5000.0),
+        store=store,
+    )
+    loop.run(subject_id="cust_1", case=case_view(case(amount=1.0)))
+    assert calls["amounts"] == [3000.0]  # server-derived
+    audit = store.read_audit("pay_1")
+    refund_entries = [e for e in audit if e.action_name == "refund"]
+    assert refund_entries and refund_entries[-1].cost == 3000.0
 
 
 def test_spend_cap_breaker_halts_refund() -> None:
@@ -75,7 +137,7 @@ def test_spend_cap_breaker_halts_refund() -> None:
     loop = build_agent(
         case(amount=1000.0),
         provider,
-        ScriptedLLMClient([_refund(1000), _FINAL]),
+        ScriptedLLMClient([_REFUND, _FINAL]),
         settings(per_run_spend_cap_inr=500.0, approval_threshold_inr=100000.0),
         store=store,
     )
