@@ -9,3 +9,10 @@ These implement :class:`agentcore.llm_client.LLMClient`:
 The dependency arrow is ``llm -> agentcore``; ``agentcore`` never imports this
 package.
 """
+from __future__ import annotations
+
+from llm.cache import CachingLLMClient
+from llm.groq import GroqLLMClient
+from llm.stub import StubLLMClient
+
+__all__ = ["CachingLLMClient", "GroqLLMClient", "StubLLMClient"]
