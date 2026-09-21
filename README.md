@@ -92,6 +92,10 @@ LLM call count, the executor status and audit, the outcome and the ledger row.
 - The cost/LLM-share figures and the "learned rule" example on the page come
   from `evals/snapshot.json` and are labelled as offline evaluation. The live
   app records trajectories but does not run the distiller itself.
+- A "From prototype → live payment recovery" section explains how a Razorpay
+  account would trigger the same pipeline through signed webhooks. It is a
+  conceptual future path: each step is marked as built, operator setup, or not
+  yet run against a real Razorpay test payment. Live mode is not enabled.
 
 ## 60-second demo
 

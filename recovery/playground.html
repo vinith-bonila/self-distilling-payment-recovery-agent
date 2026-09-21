@@ -438,6 +438,41 @@ details.explain .this-run{color:var(--fg);border-left:2px solid var(--red);paddi
 .act td.p-deterministic{color:var(--red)}.act td.p-llm{color:var(--blue)}
 .act .none{padding:18px 20px;color:var(--muted);margin:0}
 
+/* prototype badge (hero) */
+.proto{margin-top:14px;display:flex;gap:12px;align-items:flex-start;max-width:560px;padding:12px 14px;border:1px solid var(--line-2);border-radius:12px;background:var(--surface)}
+.proto .k{flex:none;font:650 10px/1 var(--mono);letter-spacing:.14em;color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 45%,transparent);border-radius:5px;padding:5px 6px}
+.proto strong{display:block;font-size:13.5px;color:var(--fg)}
+.proto p{margin:2px 0 5px;font-size:12.5px;color:var(--fg-2);line-height:1.45}
+.proto small{font:650 10px/1.2 var(--mono);letter-spacing:.12em;color:var(--warn)}
+
+/* razorpay integration path */
+.rz{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:24px;align-items:start}
+.rz-text{padding:22px}
+.rz-text p{margin:12px 0 0;color:var(--fg-2);font-size:14.5px}
+.rz-note{margin-top:16px;padding:12px 14px;border-radius:10px;border:1px dashed color-mix(in srgb,var(--warn) 45%,transparent);font-size:13px;color:var(--fg-2)}
+.rz-note b{display:block;font:650 10.5px/1.4 var(--mono);letter-spacing:.12em;color:var(--warn);margin-bottom:3px}
+.rz-flow{padding:20px 18px}
+.rz-flow .sflow{margin-top:12px}
+.rz-flow .sbox{font-size:13px}
+.rz-call{margin-top:18px;padding:18px 20px;border-left:3px solid var(--blue)}
+.rz-call h3{margin:6px 0 6px;font-size:16px}
+.rz-call p{margin:0;color:var(--fg-2);font-size:14.5px}
+.tvf{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.tvf .mode ul{margin-top:4px}
+.tvf li.req::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border:1.5px solid var(--dim);border-radius:2px}
+.tvf .flag{display:inline-block;margin-top:14px;font:650 10px/1.2 var(--mono);letter-spacing:.12em;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:5px;padding:5px 7px}
+details.explain.rz-acc{margin-top:18px}
+.rz-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:0 0 12px;font-size:12px;color:var(--muted)}
+.rz-steps{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.rz-steps li{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-solid)}
+.rz-steps .n{font:650 11px/1.6 var(--mono);color:var(--muted)}
+.rz-steps b{display:block;font-size:13.5px;color:var(--fg)}
+.rz-steps small{display:block;font-size:12px;color:var(--muted);line-height:1.45;margin-top:2px}
+.st{font:650 9.5px/1 var(--mono);letter-spacing:.12em;padding:5px 6px;border-radius:5px;border:1px solid;white-space:nowrap}
+.st.built{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.st.setup{color:var(--blue);border-color:color-mix(in srgb,var(--blue) 45%,transparent)}
+.st.next{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+
 /* footer */
 .takeaway{padding:96px 0 40px;text-align:center}
 .takeaway p.q{font-size:clamp(26px,3.6vw,44px);line-height:1.12;letter-spacing:-.035em;font-weight:680;margin:0 auto;max-width:900px}
@@ -459,6 +494,7 @@ footer.foot a{color:var(--fg-2)}
   .lcg{grid-template-columns:1fr;gap:12px}
   .lcg li:not(:last-child)::after{right:auto;left:22px;top:auto;bottom:-11px;border:4px solid transparent;border-top:6px solid var(--line-3);border-bottom:0}
   .modes{grid-template-columns:1fr}
+  .rz{grid-template-columns:1fr}
 }
 @media (max-width:860px){
   .links,.simtag{display:none}
@@ -471,6 +507,7 @@ footer.foot a{color:var(--fg-2)}
   .lane .ar{width:1px;height:12px;justify-self:center}
   .lane .ar::after{right:auto;left:-3.5px;top:auto;bottom:-1px;border:4px solid transparent;border-top:5px solid var(--line-3);border-bottom:0}
   .tiles{grid-template-columns:1fr}
+  .tvf{grid-template-columns:1fr}
 }
 @media (max-width:640px){
   .wrap{padding:0 16px}
@@ -478,7 +515,10 @@ footer.foot a{color:var(--fg-2)}
   .hero{padding-top:24px;gap:18px}
   /* phones: the explanation and flow come before the status chips */
   .hero>div:first-child{display:contents}
-  .hero .built{order:1}.hero .status{order:2;margin-top:0}
+  .hero .built{order:1}.hero .status{order:2;margin-top:0}.hero .proto{order:3;margin-top:0}
+  .rz-text,.rz-flow,.rz-call{padding:18px}
+  .rz-steps li{grid-template-columns:26px minmax(0,1fr)}
+  .rz-steps .st{grid-column:2;justify-self:start}
   h1{margin:10px 0 12px}
   .lede{font-size:15.5px}
   .demobar .wrap{font-size:13px;gap:6px 12px}
@@ -581,6 +621,14 @@ footer.foot a{color:var(--fg-2)}
         <span class="chip" id="stRules"><i></i>RULE ENGINE ONLINE</span>
         <span class="chip" id="stGuard"><i></i>GUARDRAILS ACTIVE</span>
       </div>
+      <aside class="proto" aria-label="Prototype status">
+        <span class="k">PROTOTYPE</span>
+        <div>
+          <strong>Razorpay integration ready</strong>
+          <p>Connect a Razorpay account to automatically detect payment failures through signed webhooks. <a href="#razorpay">Integration path ↓</a></p>
+          <small>TEST MODE • NO REAL MONEY</small>
+        </div>
+      </aside>
     </div>
 
     <div class="panel built" aria-labelledby="builtH">
@@ -853,6 +901,111 @@ footer.foot a{color:var(--fg-2)}
       <p>Read from this instance's ledger (provider <span class="mono">demo</span>). Shared by everyone using this instance.</p>
     </div>
     <div class="panel act" id="actPanel"><p class="none">Loading…</p></div>
+  </section>
+
+  <!-- FUTURE: how the same architecture connects to Razorpay. Conceptual; nothing here is a live connection. -->
+  <section class="block" id="razorpay" aria-labelledby="rzH">
+    <div class="sec-h">
+      <div><span class="eyebrow">Future integration path</span><h2 class="big" id="rzH">From prototype →<br>live payment recovery.</h2></div>
+      <p>How this architecture could connect to a real Razorpay payment flow.</p>
+    </div>
+    <div class="rz">
+      <div class="panel rz-text">
+        <span class="src">FUTURE INTEGRATION PATH</span>
+        <p>Today, this playground demonstrates the recovery system using safe simulation and test flows.</p>
+        <p>In a live integration, Razorpay would send a signed webhook to the backend whenever a relevant payment event occurs. The backend would verify the webhook, understand the payment failure, and send it through the same recovery pipeline shown in this prototype.</p>
+        <p>Known cases could be handled by validated rules. New or ambiguous cases could be handled by the LLM. Any payment action would still pass through the application's safety and approval controls before reaching the payment provider.</p>
+        <div class="rz-note"><b>ENGINEERING NOTE</b>Start in Razorpay Test Mode. Production access should only be enabled after the integration, security controls, monitoring, and recovery actions have been thoroughly tested.</div>
+      </div>
+      <div class="panel rz-flow" aria-label="Future integration architecture">
+        <span class="eyebrow">Future architecture · conceptual, not a live connection</span>
+        <div class="sflow">
+          <div class="sbox">Current prototype<small>this playground · simulation</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Razorpay Test Mode<small>test keys only (rzp_test_…)</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Configure webhook<small>POST /webhooks/razorpay</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Signed payment event</div>
+          <div class="sarrow"></div>
+          <div class="sbox"><svg class="ic"><use href="#i-shield"/></svg>Verify signature<small>HMAC-SHA256 · bad → 400</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Normalize payment event<small>rupees · shared failure reasons</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Policy router<small>checks validated rules</small></div>
+          <svg class="sfork" viewBox="0 0 440 22" preserveAspectRatio="none" aria-hidden="true"><path d="M220 0v6M110 22V11h220v11" fill="none" stroke="currentColor"/></svg>
+          <div class="sbranch">
+            <div class="sbox red"><svg class="ic"><use href="#i-bolt"/></svg>Rule<small>known case</small></div>
+            <div class="sbox blue"><svg class="ic"><use href="#i-llm"/></svg>LLM<small>when needed</small></div>
+          </div>
+          <svg class="sfork" viewBox="0 0 440 22" preserveAspectRatio="none" aria-hidden="true"><path d="M110 0v11h220V0M220 11v11" fill="none" stroke="currentColor"/></svg>
+          <div class="sbox"><svg class="ic"><use href="#i-shield"/></svg>Guardrails<small>GuardedExecutor</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Razorpay Test API<small>via the provider adapter</small></div>
+          <div class="sarrow"></div>
+          <div class="sbox">Outcome<small>ledger · audit trail</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel rz-call">
+      <span class="src">FUTURE PRODUCTION FLOW</span>
+      <h3>Why the webhook matters</h3>
+      <p>The playground is only the demonstration layer. In production, the payment provider would trigger the system automatically through webhooks. The same recovery pipeline could then detect, reason about, guard, and record payment-recovery actions without a person manually running a scenario.</p>
+    </div>
+
+    <div class="tvf">
+      <div class="panel mode sim">
+        <h3>TODAY</h3>
+        <p class="sub">Prototype / test mode</p>
+        <ul>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Safe experimentation</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Demo / simulation events (<span class="mono">pay_demo_</span> ids)</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>No real customer money</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>The recovery pipeline can be demonstrated</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Existing safety controls remain active</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Signed Razorpay test-webhook endpoint, verified with synthetic payment ids (no real payment recovered)</span></li>
+        </ul>
+      </div>
+      <div class="panel mode eval">
+        <h3>FUTURE</h3>
+        <p class="sub">Razorpay live mode — would require:</p>
+        <ul>
+          <li class="req"><span>Production credentials</span></li>
+          <li class="req"><span>Secure secret management</span></li>
+          <li class="req"><span>Verified production webhooks</span></li>
+          <li class="req"><span>Persistent production storage</span></li>
+          <li class="req"><span>Monitoring</span></li>
+          <li class="req"><span>Audit logging</span></li>
+          <li class="req"><span>Idempotency / replay protection</span></li>
+          <li class="req"><span>Approval and safety controls</span></li>
+          <li class="req"><span>Extensive test-mode validation</span></li>
+          <li class="req"><span>Production operational safeguards</span></li>
+        </ul>
+        <span class="flag">FUTURE • NOT ENABLED IN THIS DEMO</span>
+      </div>
+    </div>
+
+    <details class="panel explain rz-acc">
+      <summary>How would we connect Razorpay?<i aria-hidden="true">+</i></summary>
+      <div class="body">
+        <p class="rz-legend"><span><span class="st built">BUILT</span> in this repository</span><span><span class="st setup">SETUP</span> configuration by the operator</span><span><span class="st next">NOT YET RUN LIVE</span> implemented, tested only against a mocked API</span></p>
+        <ol class="rz-steps">
+          <li><span class="n">01</span><div><b>Connect / configure a Razorpay account</b><small>Use Razorpay Test Mode.</small></div><span class="st setup">SETUP</span></li>
+          <li><span class="n">02</span><div><b>Create test API credentials</b><small>The app only boots with <span class="mono">rzp_test_</span> keys; live keys are refused.</small></div><span class="st setup">SETUP</span></li>
+          <li><span class="n">03</span><div><b>Configure the webhook endpoint</b><small>Point <span class="mono">payment.failed</span> to <span class="mono">/webhooks/razorpay</span>.</small></div><span class="st setup">SETUP</span></li>
+          <li><span class="n">04</span><div><b>Store the webhook secret securely</b><small>As the <span class="mono">RAZORPAY_WEBHOOK_SECRET</span> environment variable — never in the repository.</small></div><span class="st setup">SETUP</span></li>
+          <li><span class="n">05</span><div><b>Receive the payment event</b><small>The raw body is stored before anything else.</small></div><span class="st built">BUILT</span></li>
+          <li><span class="n">06</span><div><b>Verify the webhook signature</b><small>HMAC-SHA256; a bad signature gets 400 and nothing is stored. Checked on the deployment with synthetic payment ids.</small></div><span class="st built">BUILT</span></li>
+          <li><span class="n">07</span><div><b>Normalize the payment event</b><small>Paise → rupees; Razorpay error reasons → shared failure reasons.</small></div><span class="st built">BUILT</span></li>
+          <li><span class="n">08</span><div><b>Run the RecoveryPipeline</b><small>In a background task, after the 200.</small></div><span class="st built">BUILT</span></li>
+          <li><span class="n">09</span><div><b>Apply a validated rule, or use the LLM when needed</b><small>PolicyRouter checks ACTIVE rules first.</small></div><span class="st built">BUILT</span></li>
+          <li><span class="n">10</span><div><b>Pass permitted actions through GuardedExecutor</b><small>Idempotency, approval, budgets, spend cap.</small></div><span class="st built">BUILT</span></li>
+          <li><span class="n">11</span><div><b>Call the appropriate Razorpay test API</b><small>Implemented in the provider adapter; not yet run with a real Razorpay test payment.</small></div><span class="st next">NOT YET RUN LIVE</span></li>
+          <li><span class="n">12</span><div><b>Store the outcome and audit trail</b><small>Ledger, trajectory and guardrail audit log.</small></div><span class="st built">BUILT</span></li>
+        </ol>
+      </div>
+    </details>
   </section>
 
   <section class="takeaway" aria-label="Takeaway">

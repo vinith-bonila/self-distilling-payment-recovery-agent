@@ -253,3 +253,17 @@ def test_overview_failure_reasons_are_the_backend_enum(tmp_path) -> None:
     with TestClient(app) as client:
         reasons = client.get("/playground/api/overview").json()["failure_reasons"]
     assert reasons == [r.value for r in FailureReason]
+
+
+def test_razorpay_integration_path_is_labelled_future_and_never_claims_live(tmp_path) -> None:
+    app, _ = _app(tmp_path, _provider())
+    with TestClient(app) as client:
+        page = client.get("/playground").text
+
+    for label in ("Razorpay integration ready", "TEST MODE • NO REAL MONEY", "FUTURE INTEGRATION PATH",
+                  "FUTURE • NOT ENABLED IN THIS DEMO", "NOT YET RUN LIVE", "How would we connect Razorpay?"):
+        assert label in page
+    lowered = page.lower()
+    for claim in ("razorpay connected", "live razorpay connected", "production ready", "production-ready",
+                  "recovering real payments", "live payments are being monitored"):
+        assert claim not in lowered
