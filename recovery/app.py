@@ -28,7 +28,6 @@ from agentcore.guardrails import SqlGuardStore
 from agentcore.llm_client import LLMClient
 from config import Settings, get_settings
 from providers.base import PaymentProvider
-from recovery import _temp_diagnostics  # TEMPORARY: remove with the diagnostic
 from recovery import dashboard, webhooks
 from recovery.db import init_db
 from recovery.llm_factory import build_llm
@@ -88,7 +87,6 @@ def create_app(
     app.state.artifacts_dir = artifacts_dir or dashboard.DEFAULT_ARTIFACTS_DIR
     app.include_router(webhooks.router)
     app.include_router(dashboard.router)
-    app.include_router(_temp_diagnostics.router)  # TEMPORARY: remove with the diagnostic
 
     @app.get("/health")
     def health() -> dict[str, str]:
