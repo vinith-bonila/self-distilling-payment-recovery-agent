@@ -21,6 +21,10 @@ class LedgerRepository:
             session.flush()
             return row.id
 
+    def get(self, ledger_id: int) -> LedgerEntry | None:
+        with session_scope() as session:
+            return session.get(LedgerEntry, ledger_id)
+
     def for_event(self, internal_event_id: int) -> LedgerEntry | None:
         with session_scope() as session:
             return (

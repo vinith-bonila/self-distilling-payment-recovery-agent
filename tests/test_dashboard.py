@@ -62,7 +62,7 @@ def test_dashboard_renders_with_real_evaluation_artifacts(tmp_path) -> None:
     with TestClient(app) as client:
         html = client.get("/").text
     # Cost curve comes first, then the headline, ledger, rules, approvals.
-    order = [html.index(h) for h in ("Cost curve", "Headline", "Outcome ledger", "Rules", "Pending approvals")]
+    order = [html.index(h) for h in ("Cost curve", "Headline", "Outcome ledger", "Rules · evaluation run", "Pending approvals")]
     assert order == sorted(order)
     assert "/artifacts/cost_curve.png" in html
     assert "distilled:failure_reason=card_declined" in html

@@ -69,6 +69,30 @@ Either way the app serves the dashboard on <http://localhost:8000> — cost curv
 first, then the outcome ledger, the rule table with status and provenance, and
 pending approvals.
 
+### Agent Playground
+
+`/playground` is a visual front end for the live pipeline. You describe a
+synthetic failed payment (a `pay_demo_…` id, amount, failure reason). Then
+`POST /playground/api/run` puts it in an in-memory **demo** provider, writes a
+`demo` internal event and calls the same `RecoveryPipeline.process` the webhook
+path uses: PolicyRouter, rule or agent, GuardedExecutor, trajectory, ledger.
+The page animates only what the response reports: the path taken, the real
+LLM call count, the executor status and audit, the outcome and the ledger row.
+
+- It is a **simulation**. The demo provider has no network and moves no money,
+  `amount_recovered_inr` stays null, and every response says so.
+- The demo provider is registered on the pipeline, not the webhook router, so
+  `/webhooks/demo` does not exist. The webhook path is unchanged.
+- Ids must be `pay_demo_…` / `cust_demo_…`. Guard state is keyed on them, so a
+  demo run cannot use up a real payment's idempotency keys or a real customer's
+  action budget. The client never chooses the action or a refund amount (extra
+  fields are rejected), and approval gates apply as usual.
+- The endpoint is unauthenticated but rate-limited (20 runs/min per process).
+  With `LLM_BACKEND=groq`, each LLM-path run is a real, billed model call.
+- The cost/LLM-share figures and the "learned rule" example on the page come
+  from `evals/snapshot.json` and are labelled as offline evaluation. The live
+  app records trajectories but does not run the distiller itself.
+
 ## 60-second demo
 
 > 🎬 *Video placeholder — a 60-second walkthrough of `make demo` and the
@@ -399,6 +423,7 @@ there is no code path to a provider that skips the checks below.
 | Sandbox keys only | The app refuses to boot with live Razorpay or Stripe keys | `test_live_razorpay_key_refused`, `test_live_stripe_key_refused` |
 | Layering | `agentcore` imports nothing from the other layers | `test_agentcore_imports_nothing_from_other_layers` |
 | Dashboard | Rule text originates from LLM output and is HTML-escaped | `test_untrusted_rule_content_is_escaped` |
+| Playground | Demo ids are namespaced, extra fields (action, refund amount) are rejected, results are labelled simulation | `test_input_cannot_leave_the_demo_namespace_or_steer_the_decision`, `test_demo_result_is_labelled_simulation_and_never_a_recovery` |
 
 ## What the customer simulator taught us
 
@@ -551,8 +576,9 @@ About 167 failures a second. In roughly the order they would bite:
 - **The eval's context dependence is too weak** to show what the brief asked
   for (see above).
 - **Demotion is slow** — 250 cases of lag after the drift.
-- **The dashboard and webhook endpoints have no authentication** beyond webhook
-  signatures. The dashboard shows ledger data to anyone who can reach it.
+- **The dashboard, playground and webhook endpoints have no authentication**
+  beyond webhook signatures. The dashboard shows ledger data to anyone who can
+  reach it, and anyone can add rate-limited `demo` rows through the playground.
 - **Refunds are full-refund only**; there is no partial-refund path.
 - **Packaging:** the app runs from its source tree. A non-editable install
   would not find `prompts/` or the eval artefacts. The Docker image runs from
@@ -570,7 +596,7 @@ About 167 failures a second. In roughly the order they would bite:
 | --- | --- |
 | `agentcore/` | Domain-neutral: agent loop, tool registry, guardrails, rule grammar, distillation mechanics, eval statistics, trajectory model |
 | `providers/` | `PaymentProvider` interface, normalised types, Fake / Razorpay / Stripe adapters, conformance contract |
-| `recovery/` | Webhooks, policy router, recovery tools, rule store, distiller, FastAPI app, dashboard |
+| `recovery/` | Webhooks, policy router, recovery tools, rule store, distiller, FastAPI app, dashboard, agent playground |
 | `llm/` | LLM clients: frozen offline stub, disk cache keyed on prompt hash, Groq |
 | `evals/` | Hidden ground truth, generator, customer simulator, control group, harness, results |
 | `prompts/` | Versioned prompts with purpose / inputs / output headers, and a changelog |

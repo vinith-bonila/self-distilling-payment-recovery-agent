@@ -28,7 +28,7 @@ from agentcore.guardrails import SqlGuardStore
 from agentcore.llm_client import LLMClient
 from config import Settings, get_settings
 from providers.base import PaymentProvider
-from recovery import dashboard, webhooks
+from recovery import dashboard, playground, webhooks
 from recovery.db import init_db
 from recovery.llm_factory import build_llm
 from recovery.pipeline import RecoveryPipeline
@@ -60,6 +60,7 @@ def create_app(
     registry = provider_registry or build_registry(settings)
     db_url = database_url or settings.database_url
     llm_client = llm or build_llm(settings)
+    demo_provider = playground.DemoProvider()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -69,8 +70,13 @@ def create_app(
             repo = RuleRepository(payment_rule_schema())
             if _rule_store_is_empty(repo):
                 seed(repo)
+        # The playground's in-memory demo provider is known to the pipeline
+        # only; the webhook router never sees it.
         pipeline = RecoveryPipeline(
-            registry=registry, settings=settings, llm=llm_client, guard_store=guard_store
+            registry={**registry, playground.DEMO_PROVIDER: demo_provider},
+            settings=settings,
+            llm=llm_client,
+            guard_store=guard_store,
         )
         app.state.guard_store = guard_store
         app.state.pipeline = pipeline
@@ -84,9 +90,14 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.provider_registry = registry
+    app.state.settings = settings
+    app.state.demo_provider = demo_provider
+    app.state.playground_llm_model = getattr(llm_client, "model", "unknown")
+    app.state.playground_limiter = playground.RateLimiter()
     app.state.artifacts_dir = artifacts_dir or dashboard.DEFAULT_ARTIFACTS_DIR
     app.include_router(webhooks.router)
     app.include_router(dashboard.router)
+    app.include_router(playground.router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

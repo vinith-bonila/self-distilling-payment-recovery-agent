@@ -85,11 +85,12 @@ def _live_rules() -> list[dict[str, Any]]:
 
 
 def _live_events() -> tuple[int, list[InternalEvent]]:
+    # Playground runs write provider="demo" events; they are not webhooks.
     with session_scope() as session:
-        total = session.query(InternalEvent).count()
+        webhooks = session.query(InternalEvent).filter(InternalEvent.provider != "demo")
+        total = webhooks.count()
         latest = (
-            session.query(InternalEvent)
-            .order_by(InternalEvent.id.desc())
+            webhooks.order_by(InternalEvent.id.desc())
             .limit(_EVENT_ROWS)
             .all()
         )
@@ -114,6 +115,8 @@ img{max-width:100%;height:auto;display:block;border-radius:6px;background:#fff}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid}
 .active{color:var(--ok)}.shadow{color:var(--shadow)}.demoted{color:var(--bad)}.disabled{color:var(--muted)}
 code{font-size:12px}
+nav{display:flex;gap:18px;flex-wrap:wrap;font-size:14px;margin:0 0 18px}
+nav a{color:var(--muted);text-decoration:none}nav a:hover,nav a[aria-current]{color:var(--fg)}
 """
 
 
@@ -285,7 +288,8 @@ def _live_section() -> str:
         by_status[rule["status"]] = by_status.get(rule["status"], 0) + 1
     rule_summary = ", ".join(f"{n} {s}" for s, n in sorted(by_status.items())) or "none"
     return (
-        f"<p class=note>{total} normalised webhook event(s) received · "
+        f"<p class=note>{total} normalised webhook event(s) received (playground "
+        "simulations excluded; they appear in the ledger as provider <code>demo</code>) · "
         f"{len(live_rules)} rule(s) in this instance's store ({_e(rule_summary)}).</p>"
         f"<h3>Live outcome ledger</h3>{_live_ledger_table()}"
         f"<h3>Received webhooks</h3>{events}"
@@ -302,6 +306,8 @@ def dashboard(request: Request) -> HTMLResponse:
         "<!doctype html><html lang=en><head><meta charset=utf-8>",
         "<meta name=viewport content='width=device-width,initial-scale=1'>",
         f"<title>Payment Recovery</title><style>{_CSS}</style></head><body><main>",
+        "<nav><a href='/' aria-current=page>Dashboard</a><a href='/playground'>Agent Playground</a>"
+        "<a href='#evaluation'>Evaluation</a><a href='#rules'>Rules</a></nav>",
         "<h1>Self-distilling payment recovery</h1>",
         "<p class=note>An LLM that writes the rules that replace it. Evaluation "
         "figures below are from a synthetic, offline run; cost is modelled.</p>",
@@ -314,19 +320,19 @@ def dashboard(request: Request) -> HTMLResponse:
     ]
     if snapshot is None:
         parts.append(
-            "<h2>Evaluation</h2><section><p class=muted>No evaluation snapshot yet — "
+            "<h2 id=evaluation>Evaluation</h2><section><p class=muted>No evaluation snapshot yet — "
             "run <code>make demo</code> to generate one.</p></section>"
         )
     else:
         parts += [
-            f"<h2>Headline</h2><section><p class=note>{_e(snapshot['n'])} cases, seed "
+            f"<h2 id=evaluation>Headline</h2><section><p class=note>{_e(snapshot['n'])} cases, seed "
             f"{_e(snapshot['seed'])}, concept drift at case {_e(snapshot['drift_index'])}.</p>",
             _metrics_table(snapshot),
             "</section>",
             "<h2>Outcome ledger · evaluation run</h2><section>",
             _ledger_table(snapshot),
             "</section>",
-            "<h2>Rules · evaluation run</h2><section><p class=note>Final state of the evaluation run. "
+            "<h2 id=rules>Rules · evaluation run</h2><section><p class=note>Final state of the evaluation run. "
             "Shadow rules observe only and never execute.</p>",
             _rules_table(snapshot.get("rules", []), snapshot.get("distillation", {})),
             "</section>",
