@@ -84,7 +84,7 @@ def write_results_md(result: EvalResult, path: str | Path) -> Path:
     )
     text = "\n".join(lines)
     out = Path(path)
-    out.write_text(text, encoding="utf-8")
+    out.write_text(text, encoding="utf-8", newline="\n")
     return out
 
 
@@ -191,7 +191,7 @@ def write_comparison_md(
         "replicate the agent, they do not out-think it).\n"
     )
     out = Path(path)
-    out.write_text("\n".join(lines), encoding="utf-8")
+    out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return out
 
 
@@ -336,5 +336,5 @@ def write_snapshot_json(baseline: EvalResult, distilled: EvalResult, path: str |
         "pending_approvals": pending,
     }
     out = Path(path)
-    out.write_text(json.dumps(_stable(snapshot), indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    out.write_text(json.dumps(_stable(snapshot), indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return out
