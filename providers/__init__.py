@@ -12,6 +12,7 @@ from providers.base import PaymentProvider
 from providers.errors import ProviderAPIError, ProviderError, ResourceNotFound
 from providers.fake import FakeProvider
 from providers.razorpay import RazorpayAdapter
+from providers.stripe import StripeProvider
 from providers.types import (
     CustomerHistory,
     EventType,
@@ -48,4 +49,5 @@ __all__ = [
     "Refund",
     "RefundStatus",
     "ResourceNotFound",
+    "StripeProvider",
 ]

@@ -17,6 +17,7 @@ import pytest
 from providers.conformance import CHECKS, SCENARIO, ProviderScenario
 from providers.fake import FakeProvider
 from providers.razorpay import RazorpayAdapter
+from providers.stripe import StripeProvider
 from providers.types import (
     CustomerHistory,
     Order,
@@ -28,6 +29,8 @@ from providers.types import (
 _FAKE_SECRET = "whsec_fake"
 _RZP_SECRET = "whsec_rzp"
 _RZP_BASE = "https://api.razorpay.com/v1"
+_STRIPE_SECRET = "whsec_stripe"
+_STRIPE_BASE = "https://api.stripe.com/v1"
 
 
 class FakeHarness:
@@ -245,7 +248,139 @@ class RazorpayHarness:
         return "0" * 64
 
 
-HARNESSES = [FakeHarness(), RazorpayHarness()]
+class StripeHarness:
+    name = "stripe"
+
+    def _handler(self, scenario: ProviderScenario):
+        minor = int(round(scenario.amount_inr * 100))
+        base_ts = 1_690_000_000
+
+        payment_intent = {
+            "id": scenario.payment_id,
+            "object": "payment_intent",
+            "amount": minor,
+            "currency": scenario.currency.lower(),
+            "status": "requires_payment_method",
+            "customer": scenario.customer_id,
+            "payment_method_types": ["card"],
+            "metadata": {"order_id": scenario.order_id},
+            "last_payment_error": {
+                "code": "card_declined",
+                "decline_code": "insufficient_funds",
+                "message": "Your card has insufficient funds.",
+            },
+            "created": base_ts,
+        }
+        checkout_session = {
+            "id": scenario.order_id,
+            "object": "checkout.session",
+            "amount_total": minor,
+            "currency": scenario.currency.lower(),
+            "status": "open",
+            "metadata": {"receipt": "rcpt_1"},
+            "created": base_ts,
+        }
+        # Stripe filters by customer server-side, so the listing is already scoped.
+        intents = [
+            {"id": f"pi_s{i}", "status": "succeeded", "amount": minor, "created": base_ts + i}
+            for i in range(scenario.successful_payments)
+        ] + [
+            {
+                "id": f"pi_f{i}",
+                "status": "requires_payment_method",
+                "amount": minor,
+                "created": base_ts + 100 + i,
+            }
+            for i in range(scenario.failed_payments)
+        ]
+
+        not_found = {"error": {"type": "invalid_request_error", "code": "resource_missing"}}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            parts = [p for p in request.url.path.split("/") if p and p != "v1"]
+            method = request.method
+
+            if method == "POST" and parts == ["refunds"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "re_1",
+                        "object": "refund",
+                        "amount": minor,
+                        "status": "succeeded",
+                        "created": base_ts,
+                    },
+                )
+            if method == "POST" and parts == ["checkout", "sessions"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "cs_test_1",
+                        "object": "checkout.session",
+                        "url": "https://checkout.stripe.com/c/pay/cs_test_1",
+                        "amount_total": minor,
+                        "currency": "inr",
+                        "status": "open",
+                    },
+                )
+            if method == "GET" and len(parts) == 2 and parts[0] == "payment_intents":
+                if parts[1] != scenario.payment_id:
+                    return httpx.Response(404, json=not_found)
+                return httpx.Response(200, json=payment_intent)
+            if method == "GET" and parts == ["payment_intents"]:
+                return httpx.Response(200, json={"object": "list", "data": intents})
+            if method == "GET" and parts == ["checkout", "sessions", scenario.order_id]:
+                return httpx.Response(200, json=checkout_session)
+            if method == "GET" and len(parts) == 2 and parts[0] == "customers":
+                if parts[1] != scenario.customer_id:
+                    return httpx.Response(404, json=not_found)
+                return httpx.Response(
+                    200, json={"id": scenario.customer_id, "object": "customer"}
+                )
+            return httpx.Response(404, json=not_found)
+
+        return handler
+
+    def build(self, scenario: ProviderScenario) -> StripeProvider:
+        client = httpx.Client(
+            base_url=_STRIPE_BASE, transport=httpx.MockTransport(self._handler(scenario))
+        )
+        return StripeProvider("sk_test_x", _STRIPE_SECRET, client=client)
+
+    def signed_failed_event(self, scenario: ProviderScenario) -> tuple[bytes, str]:
+        minor = int(round(scenario.amount_inr * 100))
+        body = {
+            "id": scenario.event_id,
+            "object": "event",
+            "type": "payment_intent.payment_failed",
+            "created": 1_690_000_000,
+            "data": {
+                "object": {
+                    "id": scenario.payment_id,
+                    "object": "payment_intent",
+                    "amount": minor,
+                    "currency": scenario.currency.lower(),
+                    "status": "requires_payment_method",
+                    "customer": scenario.customer_id,
+                    "metadata": {"order_id": scenario.order_id},
+                    "last_payment_error": {
+                        "code": "card_declined",
+                        "decline_code": "insufficient_funds",
+                    },
+                }
+            },
+        }
+        payload = json.dumps(body).encode("utf-8")
+        timestamp = "1690000000"
+        signed = f"{timestamp}.".encode("utf-8") + payload
+        digest = hmac.new(_STRIPE_SECRET.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+        return payload, f"t={timestamp},v1={digest}"
+
+    def tampered_signature(self, payload: bytes) -> str:
+        return "t=1690000000,v1=" + "0" * 64
+
+
+HARNESSES = [FakeHarness(), RazorpayHarness(), StripeHarness()]
 
 
 @pytest.mark.parametrize("harness", HARNESSES, ids=lambda h: h.name)

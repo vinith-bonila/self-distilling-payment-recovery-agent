@@ -10,15 +10,24 @@ from config import Settings
 from providers.base import PaymentProvider
 from providers.fake import FakeProvider
 from providers.razorpay import RazorpayAdapter
+from providers.stripe import StripeProvider
 
 
 def build_registry(settings: Settings) -> dict[str, PaymentProvider]:
-    """Return {provider_name: adapter} for every configured provider."""
+    """Return {provider_name: adapter} for every configured provider.
+
+    Adding a provider is a registration, not a branch: nothing above this map
+    knows which adapter it is talking to.
+    """
     return {
         FakeProvider.name: FakeProvider(webhook_secret=settings.fake_webhook_secret),
         RazorpayAdapter.name: RazorpayAdapter(
             settings.razorpay_key_id,
             settings.razorpay_key_secret,
             settings.razorpay_webhook_secret,
+        ),
+        StripeProvider.name: StripeProvider(
+            settings.stripe_api_key,
+            settings.stripe_webhook_secret,
         ),
     }
