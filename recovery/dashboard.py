@@ -1,9 +1,17 @@
 """Minimal read-only HTML dashboard at ``/``.
 
 Deliberately simple: server-rendered HTML, no frontend framework, no JavaScript.
-It only READS — the latest offline evaluation snapshot, the rule store (through
-``RuleRepository``), and received webhook events. It never calls a provider,
-never executes an action and exposes no mutating route.
+It only READS. Two clearly separated sources:
+
+* the latest offline **evaluation run** (``evals/snapshot.json``): cost curve,
+  headline metrics, the evaluation ledger and its final rule table;
+* the **live application's** own persisted state: received webhooks, the
+  outcome ledger written by the live recovery pipeline (through
+  ``LedgerRepository``), pending approvals, and the rule store (through
+  ``RuleRepository``).
+
+Nothing is synthesised for the live view. It never calls a provider, never
+executes an action and exposes no mutating route.
 
 Every dynamic value is HTML-escaped: rule definitions and provenance originate
 from LLM proposals, so they are treated as untrusted display data.
@@ -19,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
 from recovery.db import session_scope
+from recovery.ledger import LedgerRepository
 from recovery.models import InternalEvent
 from recovery.rule_schema import payment_rule_schema
 from recovery.rules_repo import RuleRepository, RuleStatus
@@ -95,7 +104,7 @@ _CSS = """
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
-h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:32px 0 10px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:32px 0 10px}h3{font-size:14px;margin:18px 0 8px}
 .muted{color:var(--muted)}.note{font-size:13px;color:var(--muted);margin:0 0 16px}
 section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
 .scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}
@@ -199,13 +208,28 @@ def _rules_table(rules: list[dict[str, Any]], distillation: dict[str, Any]) -> s
     )
 
 
+def _live_approvals() -> str:
+    rows = LedgerRepository().pending_approvals()
+    if not rows:
+        return "<p class=muted>No live actions are awaiting approval.</p>"
+    body = "".join(
+        f"<tr><td>{_e(r.provider)}</td><td>{_e(r.payment_id)}</td><td>{_e(r.action)}</td>"
+        f"<td class=num>{'₹{:,.2f}'.format(r.amount_inr) if r.amount_inr is not None else '—'}</td>"
+        f"<td><code>{_e(r.approval_id)}</code></td></tr>"
+        for r in rows
+    )
+    return (
+        "<table><tr><th>Provider</th><th>Payment</th><th>Action</th><th>Payment amount</th>"
+        f"<th>Approval id</th></tr>{body}</table>"
+    )
+
+
 def _approvals(snapshot: dict[str, Any] | None) -> str:
     pending = (snapshot or {}).get("pending_approvals", [])
     if not pending:
         return (
-            "<p class=muted>No actions awaiting approval. The frozen stub agent never "
-            "issues refunds, so the approval gate is exercised by tests rather than by "
-            "this evaluation run.</p>"
+            "<p class=muted>None in the evaluation run: the frozen stub agent never "
+            "issues refunds, so there the approval gate is exercised by tests.</p>"
         )
     rows = "".join(
         f"<tr><td>{_e(p['case_id'])}</td><td>{_e(p['action'])}</td>"
@@ -213,6 +237,33 @@ def _approvals(snapshot: dict[str, Any] | None) -> str:
         for p in pending
     )
     return f"<table><tr><th>Case</th><th>Action</th><th>Amount</th></tr>{rows}</table>"
+
+
+def _live_ledger_table() -> str:
+    ledger = LedgerRepository()
+    rows = ledger.recent(_LEDGER_ROWS)
+    if not rows:
+        return "<p class=muted>The live recovery pipeline has not processed any events yet.</p>"
+    body = "".join(
+        "<tr>"
+        f"<td class=num>{_e(r.id)}</td><td>{_e(r.provider)}</td><td>{_e(r.payment_id)}</td>"
+        f"<td class=num>{'₹{:,.2f}'.format(r.amount_inr) if r.amount_inr is not None else '—'}</td>"
+        f"<td>{_e(r.failure_reason or '—')}</td><td>{_e(r.path)}</td>"
+        f"<td>{_e(r.action or '—')}</td><td>{_e(r.execution_status or '—')}</td>"
+        f"<td>{_e(r.outcome)}</td><td><code>{_e(r.rule_key or '—')}</code></td>"
+        f"<td class=num>{_e(r.trajectory_id if r.trajectory_id is not None else '—')}</td>"
+        f"<td class=num>{r.latency_ms:.0f}</td>"
+        "</tr>"
+        for r in rows
+    )
+    return (
+        f"<p class=note>{ledger.count()} ledger row(s). Amount recovered is not "
+        "recorded here: it is only known when the customer later pays.</p>"
+        "<div class=scroll><table><tr><th>#</th><th>Provider</th><th>Payment</th>"
+        "<th>Amount</th><th>Reason</th><th>Path</th><th>Action</th><th>Executor</th>"
+        "<th>Outcome</th><th>Rule</th><th>Trajectory</th><th>ms</th></tr>"
+        f"{body}</table></div>"
+    )
 
 
 def _live_section() -> str:
@@ -229,9 +280,15 @@ def _live_section() -> str:
         if latest
         else "<p class=muted>No webhooks received by this instance yet.</p>"
     )
+    by_status: dict[str, int] = {}
+    for rule in live_rules:
+        by_status[rule["status"]] = by_status.get(rule["status"], 0) + 1
+    rule_summary = ", ".join(f"{n} {s}" for s, n in sorted(by_status.items())) or "none"
     return (
         f"<p class=note>{total} normalised webhook event(s) received · "
-        f"{len(live_rules)} rule(s) in this instance's store.</p>{events}"
+        f"{len(live_rules)} rule(s) in this instance's store ({_e(rule_summary)}).</p>"
+        f"<h3>Live outcome ledger</h3>{_live_ledger_table()}"
+        f"<h3>Received webhooks</h3>{events}"
     )
 
 
@@ -266,19 +323,21 @@ def dashboard(request: Request) -> HTMLResponse:
             f"{_e(snapshot['seed'])}, concept drift at case {_e(snapshot['drift_index'])}.</p>",
             _metrics_table(snapshot),
             "</section>",
-            "<h2>Outcome ledger</h2><section>",
+            "<h2>Outcome ledger · evaluation run</h2><section>",
             _ledger_table(snapshot),
             "</section>",
-            "<h2>Rules</h2><section><p class=note>Final state of the evaluation run. "
+            "<h2>Rules · evaluation run</h2><section><p class=note>Final state of the evaluation run. "
             "Shadow rules observe only and never execute.</p>",
             _rules_table(snapshot.get("rules", []), snapshot.get("distillation", {})),
             "</section>",
         ]
     parts += [
         "<h2>Pending approvals</h2><section>",
+        _live_approvals(),
+        "<h3>Evaluation run</h3>",
         _approvals(snapshot),
         "</section>",
-        "<h2>This instance</h2><section>",
+        "<h2>Live application</h2><section>",
         _live_section(),
         "</section></main></body></html>",
     ]

@@ -7,7 +7,7 @@ are the executor's; nothing here re-implements them.
 """
 from __future__ import annotations
 
-from agentcore.agent import AgentLoop
+from agentcore.agent import AgentLoop, ToolRegistry
 from agentcore.guardrails import GuardedExecutor, GuardPolicy, GuardStore, InMemoryGuardStore
 from agentcore.llm_client import LLMClient
 from agentcore.trajectory import Trajectory
@@ -15,6 +15,38 @@ from config import Settings
 from providers.base import PaymentProvider
 from recovery.prompts import load_prompt
 from recovery.tools import RecoveryCase, build_tools
+
+
+def guard_policy(settings: Settings) -> GuardPolicy:
+    """The single source of guardrail limits, for every path that acts."""
+    return GuardPolicy(
+        approval_threshold=settings.approval_threshold_inr,
+        per_subject_action_budget=settings.per_subject_action_budget,
+        per_run_spend_cap=settings.per_run_spend_cap_inr,
+    )
+
+
+def build_executor(
+    case: RecoveryCase,
+    provider: PaymentProvider,
+    settings: Settings,
+    *,
+    store: GuardStore | None = None,
+) -> tuple[GuardedExecutor, ToolRegistry]:
+    """Build the guarded executor and tool registry for one case.
+
+    Shared by the agent path and the deterministic-rule path, so both reach
+    providers through the same executor, handlers and guardrails.
+    """
+    executor = GuardedExecutor(
+        run_id=case.payment_id,
+        store=store or InMemoryGuardStore(),
+        policy=guard_policy(settings),
+    )
+    registry, handlers = build_tools(case, provider)
+    for action_name, handler in handlers.items():
+        executor.register(action_name, handler)
+    return executor, registry
 
 
 def build_agent(
@@ -27,18 +59,7 @@ def build_agent(
     prompt_version: str = "v1",
 ) -> AgentLoop:
     """Build the agent loop for ``case`` (its executor is exposed as ``loop.executor``)."""
-    executor = GuardedExecutor(
-        run_id=case.payment_id,
-        store=store or InMemoryGuardStore(),
-        policy=GuardPolicy(
-            approval_threshold=settings.approval_threshold_inr,
-            per_subject_action_budget=settings.per_subject_action_budget,
-            per_run_spend_cap=settings.per_run_spend_cap_inr,
-        ),
-    )
-    registry, handlers = build_tools(case, provider)
-    for action_name, handler in handlers.items():
-        executor.register(action_name, handler)
+    executor, registry = build_executor(case, provider, settings, store=store)
 
     prompt = load_prompt("agent_decider", prompt_version)
     return AgentLoop(

@@ -1,7 +1,8 @@
 """ORM models for the recovery layer.
 
-Phase 1 defines only the raw webhook event store. The outcome ledger, rules
-table, approval queue and trajectory persistence arrive in later phases.
+Raw webhook events, normalised internal events, versioned rules, agent
+trajectories and the outcome ledger. Guardrail state (idempotency, approvals,
+budgets, audit) lives in agentcore's own tables via ``SqlGuardStore``.
 """
 from __future__ import annotations
 
@@ -49,8 +50,9 @@ class InternalEvent(Base):
     """A webhook after signature check and normalisation.
 
     Holds normalised fields only (failure reason stored as the enum *value*
-    string, never a provider string). The routing columns are populated later
-    (Phase 5) when the agent/router processes the event; they stay null here.
+    string, never a provider string). The webhook writes it; the live recovery
+    pipeline later fills the routing columns (route, matched rule, resolved
+    action) when it processes a failed-payment event.
     """
 
     __tablename__ = "internal_events"
@@ -110,6 +112,48 @@ class TrajectoryRow(Base):
     total_tokens: Mapped[int] = mapped_column(Integer)
     total_latency_ms: Mapped[float] = mapped_column(Float)
     trajectory_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
+class LedgerEntry(Base):
+    """The outcome ledger: one row per processed failed-payment event.
+
+    Written by the live recovery pipeline after the router, the rule or agent
+    path, and the guarded executor have run. ``internal_event_id`` is unique, so
+    an event is processed at most once; a redelivered webhook (same provider and
+    event id) is recorded as ``duplicate_delivery`` and never re-executed.
+
+    ``amount_recovered_inr`` is deliberately left null: whether the customer
+    actually pays is only known later (a subsequent capture event), and the
+    ledger never guesses it.
+    """
+
+    __tablename__ = "ledger_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    internal_event_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    event_id: Mapped[str] = mapped_column(String(255), index=True)
+    payment_id: Mapped[str] = mapped_column(String(255), index=True)
+    amount_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    path: Mapped[str] = mapped_column(String(32))  # deterministic | llm | duplicate_delivery | failed
+    action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    execution_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(64), index=True)
+    approval_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    rule_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    rule_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trajectory_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    modelled_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
+    amount_recovered_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )

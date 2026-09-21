@@ -37,9 +37,21 @@ class Settings(BaseSettings):
     # Fake provider webhook secret (offline runs and tests).
     fake_webhook_secret: str = "whsec_fake"
 
-    # LLM (Groq). An empty key is fine offline: the stub client needs no network.
+    # LLM backend for the live agent. "stub" (default) is the frozen offline
+    # stub: no key, no network. "groq" needs GROQ_API_KEY; responses are
+    # disk-cached when LLM_CACHE_DIR is set.
+    llm_backend: str = "stub"
+    llm_cache_dir: str = ""
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+
+    # Live pipeline behaviour.
+    seed_rules_on_startup: bool = True  # insert seed rules only if the store is empty
+    process_pending_on_startup: bool = True  # drain events a crash left unprocessed
+
+    # Modelled LLM price for the ledger (token accounting x price, not a bill).
+    modelled_input_usd_per_1k: float = 0.00059
+    modelled_output_usd_per_1k: float = 0.00079
 
     # Guardrail defaults (money amounts in INR / rupees).
     approval_threshold_inr: float = 5000.0
@@ -59,6 +71,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Refusing to boot: STRIPE_API_KEY must be a sandbox key (sk_test_...)."
             )
+        if self.llm_backend not in {"stub", "groq"}:
+            raise ValueError("Refusing to boot: LLM_BACKEND must be 'stub' or 'groq'.")
+        if self.llm_backend == "groq" and not self.groq_api_key:
+            raise ValueError("Refusing to boot: LLM_BACKEND=groq requires GROQ_API_KEY.")
         return self
 
 

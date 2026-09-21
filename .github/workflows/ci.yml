@@ -76,6 +76,33 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
             -H 'Stripe-Signature: t=1,v1=00' -d '{}' http://127.0.0.1:8000/webhooks/stripe)
           test "$code" = "400"
+          # The live pipeline runs in the real server: a signed webhook is
+          # acknowledged, then a background task writes a ledger row. The
+          # default Fake provider holds no payments, so the recorded outcome is
+          # 'failed' (payment not found); the success paths are covered by
+          # tests/test_live_pipeline.py.
+          python - <<'PY'
+          import sqlite3, time, urllib.request
+          from providers.fake import FakeProvider
+          from providers.types import FailureReason, PaymentMethod
+          signer = FakeProvider(webhook_secret="whsec_fake")
+          body = signer.build_failed_event_payload(
+              event_id="evt_ci", payment_id="pay_ci", amount_inr=100.0,
+              failure_reason=FailureReason.RISK_BLOCKED, method=PaymentMethod.CARD)
+          req = urllib.request.Request(
+              "http://127.0.0.1:8000/webhooks/fake", data=body, method="POST",
+              headers={"X-Fake-Signature": signer.sign(body), "X-Fake-Event-Id": "evt_ci"})
+          assert urllib.request.urlopen(req, timeout=10).status == 200
+          rows = []
+          for _ in range(50):
+              rows = sqlite3.connect("payment_recovery.db").execute(
+                  "select path, outcome from ledger_entries").fetchall()
+              if rows:
+                  break
+              time.sleep(0.2)
+          print("ledger:", rows)
+          assert rows == [("failed", "failed")], rows
+          PY
 
       - name: Live payment credentials refuse to boot
         run: |

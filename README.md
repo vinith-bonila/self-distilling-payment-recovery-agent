@@ -76,6 +76,7 @@ flowchart TB
         AG["Recovery agent<br/>6 tools"]
         DS["PaymentDistiller"]
         RS[("Versioned rules<br/>+ provenance")]
+        LG[("Trajectories +<br/>outcome ledger")]
     end
     subgraph C["agentcore/ — domain-neutral"]
         LOOP["Agent loop<br/>≤5 steps · timeout"]
@@ -85,11 +86,12 @@ flowchart TB
     end
 
     AD -->|signed webhook| WH
-    WH -.->|"normalised event<br/>(routing runs in the eval harness;<br/>not wired in the live app)"| RT
+    WH -->|"normalised event<br/>(background task, after the 200)"| RT
     RT -->|rule matches| GX
     RT -->|ambiguous| AG
     AG --> LOOP --> GX
     GX -->|the only path to a side effect| AD
+    GX -->|outcome| LG
     LOOP -.->|trajectories| DS
     DS -->|LLM proposes a rule| GR
     GR -->|valid → SHADOW| RS
@@ -97,6 +99,47 @@ flowchart TB
     DM -->|promote / demote| RS
     RS --> RT
 ```
+
+## The live application
+
+The FastAPI app runs the same system the evaluation measures, end to end:
+
+```text
+signed webhook → verify signature → persist raw → normalise → 200
+      ↓  background task, after the response has been sent
+provider enrichment → policy router → ACTIVE rule | agent loop
+      → GuardedExecutor → provider TEST API → trajectory → outcome ledger
+```
+
+- **Acknowledgement never waits on recovery.** The webhook returns 200 once the
+  raw and normalised events are stored; routing, the provider calls and any LLM
+  call run as a FastAPI background task afterwards. There is no queue
+  infrastructure: a failed-payment event with no ledger row is picked up at the
+  next startup, so a crash between the 200 and processing loses nothing.
+- **One implementation of every guardrail.** The rule path and the agent path
+  build their executor from the same function (`build_executor` in
+  `recovery/agent.py`), so both act only through `GuardedExecutor`, with the
+  same tools and limits as the evaluation. Guard state is persistent
+  (`SqlGuardStore`), so idempotency keys, approvals, budgets and spend caps hold
+  across requests and restarts.
+- **Active rules bypass the LLM; shadow rules never act.** The router evaluates
+  only `ACTIVE` rules. A match is carried out by the same tool the agent would
+  have used, with no LLM call; anything else goes to the agent.
+- **Redelivered webhooks are harmless.** A repeated provider event id is
+  recorded and dropped before routing — no second LLM call, no second action.
+  A distinct event about the same payment is stopped by the executor's
+  persistent idempotency keys.
+- **The frozen stub is the default LLM**: no key, no network. `LLM_BACKEND=groq`
+  opts into Groq, and the app refuses to boot in that mode without a key.
+- **The ledger records what was done, not what it earned.** Whether the
+  customer then pays is only known later, so live "amount recovered" stays empty
+  rather than being guessed. The dashboard's *Live application* section shows
+  this persisted state and nothing else.
+
+`tests/test_live_pipeline.py` drives the real app with signed webhooks for all of
+the above. A manual procedure for Razorpay TEST mode is in
+[`docs/RAZORPAY_TEST_MODE.md`](docs/RAZORPAY_TEST_MODE.md) — written, but not yet
+run against a real Razorpay account.
 
 ## Results
 
@@ -279,6 +322,8 @@ there is no code path to a provider that skips the checks below.
 | Refund auto-promotion | A high-value refund rule never auto-promotes, even with perfect stats | `test_high_value_refund_rule_never_auto_promotes` |
 | Automatic demotion | A degrading rule is demoted with history recorded, and stops executing | `test_degraded_active_rule_auto_demotes_with_history` |
 | Webhook boundary | Bad signatures are rejected before anything is persisted; the raw event is persisted before normalisation | `test_bad_signature_rejected_without_processing`, `test_raw_persisted_even_when_normalisation_fails` |
+| Live path, same guardrails | In the running app, both the rule path and the agent path act only through the guarded executor; active rules never call the LLM | `test_every_provider_side_effect_goes_through_the_guarded_executor`, `test_active_rule_handles_matching_case_without_the_llm` |
+| Duplicate webhook delivery | A redelivered event is recorded but never re-routed or re-executed; a second event for the same payment is stopped by the persistent idempotency key | `test_duplicate_webhook_delivery_executes_once`, `test_distinct_events_for_one_payment_are_idempotent_at_the_executor` |
 | Sandbox keys only | The app refuses to boot with live Razorpay or Stripe keys | `test_live_razorpay_key_refused`, `test_live_stripe_key_refused` |
 | Layering | `agentcore` imports nothing from the other layers | `test_agentcore_imports_nothing_from_other_layers` |
 | Dashboard | Rule text originates from LLM output and is HTML-escaped | `test_untrusted_rule_content_is_escaped` |
@@ -387,10 +432,12 @@ About 167 failures a second. In roughly the order they would bite:
 2. **Spend caps and action budgets are read-then-increment** — the same race;
    they need atomic updates (`UPDATE … SET spent = spent + :cost WHERE spent +
    :cost <= :cap`).
-3. **SQLite is single-writer.** Webhook persistence, trajectories, rules and the
-   guard store all contend for one lock. It must be Postgres with pooling, and
-   the webhook should return 200 after a durable enqueue, with workers doing the
-   rest.
+3. **Recovery runs in-process, one event at a time.** The webhook returns 200
+   and a background task processes the event under a single process-wide lock,
+   with a startup drain for anything a crash left behind. That is one worker. At
+   this rate it needs a real queue and a worker pool — and SQLite, single-writer
+   for webhooks, trajectories, rules, the ledger and the guard store alike, must
+   become Postgres with pooling.
 4. **The router re-reads and re-validates every active rule on every event**,
    and the distiller re-queries rules per case. Both need an in-memory compiled
    rule set, invalidated when a rule's version or status changes.
@@ -402,16 +449,17 @@ About 167 failures a second. In roughly the order they would bite:
    concurrent writers can collide.
 7. **Trajectory JSON** grows without bound in the primary database and should
    move to cheaper storage.
-8. **Webhook replay.** Signatures are verified, but event ids are not
-   de-duplicated and Stripe's timestamp tolerance is not enforced, so a replayed
-   webhook is accepted and stored again.
+8. **Webhook replay.** A redelivered event id is caught before routing, but
+   Stripe's timestamp tolerance is not enforced and Razorpay signatures carry no
+   timestamp, so an old signed body re-sent under a new event id is processed
+   (its effects are still stopped by the per-payment idempotency keys).
 
 ## What I would not ship to production
 
-- **The live pipeline is not wired end to end.** The webhook verifies,
-  persists and normalises, but nothing in the running app routes the event or
-  runs the agent. That loop runs only in the evaluation harness. Shipping needs
-  a worker that consumes normalised events.
+- **A single-process live pipeline.** Recovery runs as in-process background
+  tasks under one lock, with a startup drain for crash recovery. That is correct
+  for one process and no more: it is not a queue, a failed attempt is retried
+  only by a redelivery or a restart, and several workers would race (next point).
 - **The concurrency races above** (idempotency, spend cap, budgets, audit
   sequence). Fine for a single process; unsafe with several.
 - **The LLM customer simulator is a scaffold.** `CachedLLMCustomerSimulator`
@@ -419,6 +467,13 @@ About 167 failures a second. In roughly the order they would bite:
   implemented. Every recovery number comes from the deterministic simulator.
 - **No live model and no live provider has been exercised.** The stub drives
   every number; the Groq client and both adapters are tested only against mocks.
+  The Razorpay TEST-mode procedure is written but has not been run.
+- **Approvals cannot be decided over HTTP.** High-value actions are held
+  safely, but there is no authenticated route to approve or reject them, so they
+  stay pending.
+- **Live outcomes are not reconciled.** The ledger records the action taken, not
+  whether the customer then paid; nothing consumes capture events to fill in
+  "amount recovered".
 - **The eval's context dependence is too weak** to show what the brief asked
   for (see above).
 - **Demotion is slow** — 250 cases of lag after the drift.
@@ -444,11 +499,14 @@ About 167 failures a second. In roughly the order they would bite:
 | `llm/` | LLM clients: frozen offline stub, disk cache keyed on prompt hash, Groq |
 | `evals/` | Hidden ground truth, generator, customer simulator, control group, harness, results |
 | `prompts/` | Versioned prompts with purpose / inputs / output headers, and a changelog |
-| `tests/` | 232 tests, all network mocked |
+| `docs/` | Manual Razorpay TEST-mode procedure |
+| `scripts/` | Helper that signs and sends a Razorpay-style test webhook |
+| `tests/` | 250 tests, all network mocked |
 
 ## Configuration
 
 Copy `.env.example` to `.env`. Nothing is required for the offline demo or the
 tests. Provider keys, if supplied, must be sandbox keys (`rzp_test_…`,
-`sk_test_…`): the app refuses to boot otherwise. `.env` is ignored by both git
-and Docker, and the image contains no secrets.
+`sk_test_…`): the app refuses to boot otherwise. `LLM_BACKEND` defaults to the
+frozen offline `stub`; `groq` requires `GROQ_API_KEY`. `.env` is ignored by both
+git and Docker, and the image contains no secrets.
