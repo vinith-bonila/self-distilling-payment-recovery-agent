@@ -281,7 +281,22 @@ def run_eval_distilled(
 
     summary = _summarize(records, simulator, retry_budget)
     summary["invalid_rule_proposals"] = distiller.log.invalid_proposals
+    from recovery.rules_repo import RuleStatus
+
+    final_rules = [
+        {
+            "rule_key": loaded.rule_key,
+            "version": loaded.version,
+            "status": loaded.status.value,
+            "priority": loaded.priority,
+            "definition": loaded.definition,
+            "provenance": loaded.provenance,
+        }
+        for status in RuleStatus
+        for loaded in repo.list_by_status(status)
+    ]
     distillation = {
+        "final_rules": final_rules,
         "shadow_created": distiller.log.shadow_created,
         "promoted": distiller.log.promoted,
         "demoted": distiller.log.demoted,

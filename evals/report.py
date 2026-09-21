@@ -243,3 +243,98 @@ def write_cost_curve_png(
     fig.savefig(out, dpi=120)
     plt.close(fig)
     return out
+
+
+_VOLATILE_KEYS = {"created_at", "promoted_at", "demoted_at", "at"}
+
+
+def _stable(value):
+    """Drop wall-clock timestamps so the snapshot is byte-stable across reruns.
+
+    Provenance keeps its real timestamps in the rule store; the snapshot records
+    *when in the stream* things happened instead (``at_case``), which is both
+    deterministic and more informative for reading the drift story.
+    """
+    if isinstance(value, dict):
+        return {k: _stable(v) for k, v in value.items() if k not in _VOLATILE_KEYS}
+    if isinstance(value, list):
+        return [_stable(v) for v in value]
+    if isinstance(value, float):
+        return round(value, 6)
+    return value
+
+
+def _metric_block(summary) -> dict:
+    def rate(est):
+        lo, hi = est.ci
+        return {"rate": round(est.rate, 6), "ci_low": round(lo, 6), "ci_high": round(hi, 6), "n": est.n}
+
+    return {
+        "raw_recovery": rate(summary["raw_recovery"]),
+        "control_recovery": rate(summary["control_recovery"]),
+        "incremental_recovery": round(summary["incremental_recovery"], 6),
+        "llm_share": rate(summary["llm_share"]),
+        "wrong_tool_rate": rate(summary["wrong_tool_rate"]),
+        "modelled_cost_per_1000_usd": round(summary["modelled_cost_per_1000_usd"], 6),
+        "p50_latency_ms": round(summary["p50_latency_ms"], 3),
+        "p95_latency_ms": round(summary["p95_latency_ms"], 3),
+        "invalid_rule_proposals": summary["invalid_rule_proposals"],
+        "guardrail_trips": summary["guardrail_trips"],
+    }
+
+
+def write_snapshot_json(baseline: EvalResult, distilled: EvalResult, path: str | Path) -> Path:
+    """Write the dashboard's data source: metrics, ledger, rules, approvals.
+
+    The ledger uses the brief's outcome-ledger columns. Everything is derived
+    from the same deterministic run as results.md.
+    """
+    import json
+
+    dd = distilled.distillation or {}
+    ledger = []
+    pending = []
+    for r in distilled.records:
+        outcome = "control" if r.path == "control" else ("recovered" if r.recovered else "not_recovered")
+        ledger.append(
+            {
+                "case_index": r.index,
+                "case_id": r.case_id,
+                "provider": "fake",
+                "amount_inr": r.case.amount_inr,
+                "path": r.path,
+                "action": r.action,
+                "outcome": outcome,
+                "amount_recovered_inr": r.case.amount_inr if (r.recovered and r.path != "control") else 0.0,
+                "modelled_llm_cost_usd": round(r.cost_usd, 8),
+                "modelled_latency_ms": round(r.latency_ms, 3),
+                "tool_calls": r.iterations,
+                "rule_key": r.rule_key,
+                "rule_version": r.rule_version,
+            }
+        )
+        if r.trips.get("effect_pending_approval"):
+            pending.append(
+                {"case_id": r.case_id, "action": r.action, "amount_inr": r.case.amount_inr}
+            )
+
+    snapshot = {
+        "source": "offline evaluation run (synthetic data, modelled cost)",
+        "n": distilled.n,
+        "seed": distilled.seed,
+        "drift_index": distilled.drift_index,
+        "metrics": {"baseline": _metric_block(baseline.summary), "distilled": _metric_block(distilled.summary)},
+        "distillation": {
+            "promoted": dd.get("promoted", []),
+            "demoted": dd.get("demoted", []),
+            "blocked_high_value_refund": dd.get("blocked_high_value_refund", []),
+            "invalid_proposals": dd.get("invalid_proposals", 0),
+            "avg_shadow_agreement": dd.get("avg_shadow_agreement", 0.0),
+        },
+        "rules": dd.get("final_rules", []),
+        "ledger": ledger,
+        "pending_approvals": pending,
+    }
+    out = Path(path)
+    out.write_text(json.dumps(_stable(snapshot), indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return out

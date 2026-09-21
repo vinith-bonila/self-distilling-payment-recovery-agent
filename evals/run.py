@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from evals.harness import optimal_retry_budget, run_eval, run_eval_distilled
-from evals.report import write_comparison_md, write_cost_curve_png
+from evals.report import write_comparison_md, write_cost_curve_png, write_snapshot_json
 
 EVALS_DIR = Path(__file__).resolve().parent
 
@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     png_path = write_cost_curve_png(
         distilled, out_dir / "cost_curve.png", title="With distillation over simulated time"
     )
+    write_snapshot_json(baseline, distilled, out_dir / "snapshot.json")
 
     b, d = baseline.summary, distilled.summary
     dd = distilled.distillation or {}

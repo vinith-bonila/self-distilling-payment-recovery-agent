@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "1"                              # evals.run never tries to open the chart
+  PYTHONPATH: ${{ github.workspace }}  # run from source, as the image does
+  # Deliberately no provider or LLM secrets: every test mocks the network and
+  # the eval uses the offline stub LLM + frozen simulator.
+
+jobs:
+  test:
+    name: Tests · Python 3.11
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install pinned dependencies into a clean environment
+        run: python -m pip install -r requirements.lock
+
+      - name: Static checks (byte-compile, dependency consistency)
+        run: |
+          python -m compileall -q agentcore providers recovery llm evals config.py
+          python -m pip check
+
+      - name: Secret hygiene (.env untracked, no live keys committed)
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then echo "::error::.env is tracked"; exit 1; fi
+          if git grep -nE '(rzp_live_|sk_live_)[A-Za-z0-9]{12,}' -- . ':!tests'; then
+            echo "::error::something that looks like a live key is committed"; exit 1
+          fi
+
+      - name: Layering and isolation guards
+        run: >
+          python -m pytest -q
+          tests/test_layering.py
+          tests/test_no_ground_truth_import.py
+          tests/test_provider_leakage.py
+          tests/test_rule_validator_hostile.py
+          tests/test_rule_grammar_neutrality.py
+
+      - name: Full test suite
+        run: python -m pytest -q
+
+      - name: Offline demo reproduces the committed results
+        run: |
+          make demo
+          # results.md and snapshot.json must be byte-identical to what is
+          # committed. cost_curve.png is not diffed: font rasterisation can
+          # differ across platforms even when the data is identical.
+          git diff --exit-code -- evals/results.md evals/snapshot.json
+
+      - name: Application boots and serves health, dashboard and webhooks
+        run: |
+          python -m uvicorn recovery.app:app --port 8000 > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS http://127.0.0.1:8000/ | grep -q "Cost curve"
+          curl -fsS -o /dev/null http://127.0.0.1:8000/artifacts/cost_curve.png
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Stripe-Signature: t=1,v1=00' -d '{}' http://127.0.0.1:8000/webhooks/stripe)
+          test "$code" = "400"
+
+      - name: Live payment credentials refuse to boot
+        run: |
+          if RAZORPAY_KEY_ID=rzp_live_x python -c "import recovery.app"; then
+            echo "::error::booted with a live Razorpay key"; exit 1; fi
+          if STRIPE_API_KEY=sk_live_x python -c "import recovery.app"; then
+            echo "::error::booted with a live Stripe key"; exit 1; fi
+
+      - if: failure()
+        run: cat server.log || true
+
+  docker:
+    name: Docker image · build, in-image tests, health
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Full test suite inside the Python 3.11 image
+        run: docker build --target test -t payment-recovery:test .
+
+      - name: Build the runtime image
+        run: docker build -t payment-recovery:ci .
+
+      - name: No secrets baked into the image, runs as non-root
+        run: |
+          docker run --rm payment-recovery:ci sh -c '
+            test ! -e /app/.env || { echo ".env baked into image"; exit 1; }
+            if env | grep -E "^(RAZORPAY_KEY|STRIPE_API|GROQ_API)"; then echo "secret in image env"; exit 1; fi
+            test "$(id -u)" = "10001" || { echo "not running as the app user"; exit 1; }'
+
+      - name: Container becomes healthy and serves the dashboard
+        run: |
+          docker run -d --name app -p 8000:8000 --health-interval=2s payment-recovery:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' app)" = healthy ] && break; sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' app)" = healthy
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS http://127.0.0.1:8000/ | grep -q "Cost curve"
+
+      - name: Live credentials refuse to boot inside the container
+        run: |
+          if docker run --rm -e STRIPE_API_KEY=sk_live_x payment-recovery:ci python -c "import recovery.app"; then
+            echo "::error::container booted with a live key"; exit 1; fi
+
+      - name: Offline evaluation runs inside the container
+        run: docker run --rm payment-recovery:ci python -m evals.run --no-open --out /tmp/out
+
+      - if: always()
+        run: docker logs app || true

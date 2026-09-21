@@ -1,0 +1,4 @@
+# Normalise line endings in the repo (the Makefile needs LF; CI runs on Linux).
+* text=auto eol=lf
+*.png binary
+*.db binary

@@ -1,0 +1,54 @@
+# Pinned dependency set for reproducible installs (Docker + CI).
+#
+# Resolved for the release target — CPython 3.11 on Linux x86_64 — with pip's
+# resolver in dry-run mode, NOT frozen from a dev machine: a freeze from the
+# local 3.13 environment pinned numpy/contourpy releases that require >=3.12
+# and would not install on 3.11. Regenerate with the same constraints:
+#
+#   pip install --dry-run --ignore-installed --report report.json \
+#     --python-version 3.11 --implementation cp --abi cp311 \
+#     --platform manylinux2014_x86_64 --only-binary=:all: --target /tmp/x \
+#     fastapi uvicorn sqlalchemy pydantic-settings httpx matplotlib groq pytest
+#
+# Top-level constraints live in pyproject.toml. Versions are pinned but not
+# hash-locked (hashes are platform-specific; see README 'What I would not ship').
+
+Pygments==2.21.0
+SQLAlchemy==2.0.54
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+colorama==0.4.6; sys_platform == "win32"
+contourpy==1.3.3
+cycler==0.12.1
+distro==1.9.0
+fastapi==0.141.1
+fonttools==4.65.0
+greenlet==3.5.6
+groq==1.7.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+iniconfig==2.3.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.4.6
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+pyparsing==3.3.3
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+six==1.17.0
+sniffio==1.3.1
+starlette==1.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.53.0

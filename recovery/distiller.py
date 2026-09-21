@@ -142,6 +142,7 @@ class PaymentDistiller:
         self._created_keys: set[str] = set()
         self._shadow: dict[str, ShadowStats] = {}
         self._recent: dict[str, deque[bool]] = {}
+        self._cases_seen = 0
         self.log = DistillationLog()
 
     # --- observation ------------------------------------------------------
@@ -174,6 +175,7 @@ class PaymentDistiller:
 
     def step(self, cases_seen: int) -> None:
         """Run distillation/promotion/demotion on the cadence."""
+        self._cases_seen = cases_seen
         if cases_seen % self._cadence != 0:
             return
         self.distill()
@@ -295,6 +297,7 @@ class PaymentDistiller:
                     "support": stats.matched,
                     "agreement": round(stats.agreement_rate, 3),
                     "recovery": round(stats.recovery_rate, 3),
+                    "at_case": self._cases_seen,
                 }
             )
 
@@ -314,7 +317,12 @@ class PaymentDistiller:
                     loaded.rule_key, loaded.version, RuleStatus.DEMOTED, reason=reason
                 )
                 self.log.demoted.append(
-                    {"rule_key": loaded.rule_key, "recent_recovery": f"{recovered}/{total}", "reason": reason}
+                    {
+                        "rule_key": loaded.rule_key,
+                        "recent_recovery": f"{recovered}/{total}",
+                        "reason": reason,
+                        "at_case": self._cases_seen,
+                    }
                 )
                 window.clear()
 

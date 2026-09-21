@@ -21,7 +21,8 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [tool.setuptools]
-packages = ["agentcore", "providers", "recovery", "llm", "evals"]
+packages = ["agentcore", "agentcore.guardrails", "agentcore.rules", "agentcore.agent", "agentcore.eval", "agentcore.distill", "providers", "recovery", "llm", "evals"]
+py-modules = ["config"]
 
 [tool.pytest.ini_options]
 # Target runtime is 3.11; we develop against the locally available 3.13.
