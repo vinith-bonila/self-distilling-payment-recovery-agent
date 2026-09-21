@@ -50,7 +50,13 @@ make test
 docker build -t payment-recovery . && docker run --rm -p 8000:8000 payment-recovery
 ```
 
-The container serves the dashboard on <http://localhost:8000> — cost curve
+Or run the app directly, without Docker, from the repository root:
+
+```bash
+python -m uvicorn recovery.app:app --host 0.0.0.0 --port 8000
+```
+
+Either way the app serves the dashboard on <http://localhost:8000> — cost curve
 first, then the outcome ledger, the rule table with status and provenance, and
 pending approvals.
 
@@ -510,3 +516,14 @@ tests. Provider keys, if supplied, must be sandbox keys (`rzp_test_…`,
 `sk_test_…`): the app refuses to boot otherwise. `LLM_BACKEND` defaults to the
 frozen offline `stub`; `groq` requires `GROQ_API_KEY`. `.env` is ignored by both
 git and Docker, and the image contains no secrets.
+
+**Public deployments:** set `FAKE_WEBHOOK_SECRET`, `RAZORPAY_WEBHOOK_SECRET` and
+`STRIPE_WEBHOOK_SECRET` to random values. Their defaults are written in the
+source, so leaving them unset lets anyone sign a webhook the app will accept.
+No real money is at risk either way — only test keys are accepted — but forged
+events would pollute the ledger.
+
+SQLite is created in the working directory unless `DATABASE_URL` says
+otherwise. On a host with an ephemeral filesystem (for example a Render web
+service without a persistent disk), the live ledger, rules and guard state
+reset on every restart or redeploy; the seed rules are re-inserted at startup.
