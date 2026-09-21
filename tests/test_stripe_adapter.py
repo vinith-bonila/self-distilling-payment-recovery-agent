@@ -20,8 +20,11 @@ from providers.stripe import StripeProvider
 from providers.types import (
     EventType,
     FailureReason,
+    OrderStatus,
+    PaymentLinkStatus,
     PaymentMethod,
     PaymentStatus,
+    RefundStatus,
 )
 from recovery.app import create_app
 from recovery.db import session_scope
@@ -184,3 +187,104 @@ def test_stripe_webhook_flows_through_unchanged_recovery_pipeline(tmp_path) -> N
         assert event.provider == "stripe"
         assert event.failure_reason == "insufficient_funds"  # normalised enum value
         assert event.amount_inr == 2500.0
+
+
+# --- documented approximations, tested directly -------------------------
+# PROVIDERS.md records where Stripe's model differs from Razorpay's. Each of
+# those normalisation decisions is asserted here, not just described.
+
+@pytest.mark.parametrize(
+    "session_status,expected",
+    [("open", OrderStatus.ATTEMPTED), ("complete", OrderStatus.PAID), ("expired", OrderStatus.CREATED)],
+)
+def test_order_is_a_checkout_session(session_status, expected) -> None:
+    session = {"id": "cs_1", "amount_total": 250000, "currency": "inr", "status": session_status}
+    provider = _provider(lambda r: httpx.Response(200, json=session))
+    order = provider.get_order("cs_1")
+    assert order.status is expected
+    assert order.amount_inr == 2500.0
+    assert order.currency == "INR"
+
+
+def test_payment_link_is_a_checkout_session_with_inline_amount() -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["form"] = dict(httpx.QueryParams(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={"id": "cs_2", "url": "https://checkout.stripe.com/c/pay/cs_2",
+                  "amount_total": 250000, "status": "open"},
+        )
+
+    link = _provider(handler).create_payment_link(2500.0, reference_id="pi_1")
+    # Not the Payment Links API: a Checkout Session with inline price_data.
+    assert seen["path"].endswith("/checkout/sessions")
+    assert seen["form"]["mode"] == "payment"
+    assert seen["form"]["line_items[0][price_data][unit_amount]"] == "250000"  # minor units
+    assert seen["form"]["line_items[0][price_data][currency]"] == "inr"
+    assert seen["form"]["client_reference_id"] == "pi_1"
+    assert link.status is PaymentLinkStatus.CREATED
+    assert link.short_url.startswith("https://checkout.stripe.com/")
+    assert link.amount_inr == 2500.0
+
+
+@pytest.mark.parametrize(
+    "refund_status,expected",
+    [("succeeded", RefundStatus.PROCESSED), ("pending", RefundStatus.PENDING), ("failed", RefundStatus.FAILED)],
+)
+def test_refund_status_mapping(refund_status, expected) -> None:
+    body = {"id": "re_1", "amount": 250000, "status": refund_status}
+    refund = _provider(lambda r: httpx.Response(200, json=body)).refund_payment("pi_1", 2500.0, "refund:pi_1")
+    assert refund.status is expected
+
+
+def test_refund_sends_native_idempotency_key_and_minor_units() -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["idem"] = request.headers.get("Idempotency-Key")
+        seen["form"] = dict(httpx.QueryParams(request.content.decode("utf-8")))
+        return httpx.Response(200, json={"id": "re_1", "amount": 250000, "status": "succeeded"})
+
+    refund = _provider(handler).refund_payment("pi_1", 2500.0, "refund:pi_1")
+    # The guardrail's idempotency key is forwarded as Stripe's native header.
+    assert seen["idem"] == "refund:pi_1"
+    assert seen["form"] == {"payment_intent": "pi_1", "amount": "250000"}
+    assert refund.idempotency_key == "refund:pi_1"
+    assert refund.amount_inr == 2500.0
+
+
+def test_customer_history_counts_any_non_succeeded_intent_as_failed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/payment_intents"):
+            assert request.url.params.get("customer") == "cus_1"  # server-side filter
+            return httpx.Response(200, json={"data": [
+                {"id": "a", "status": "succeeded", "created": 1},
+                {"id": "b", "status": "requires_payment_method", "created": 2},
+                {"id": "c", "status": "canceled", "created": 3},
+                {"id": "d", "status": "processing", "created": 4},  # coarse: counted failed
+            ]})
+        return httpx.Response(200, json={"id": "cus_1"})
+
+    history = _provider(handler).get_customer_history("cus_1")
+    assert (history.total_payments, history.successful_payments, history.failed_payments) == (4, 1, 3)
+
+
+def test_bad_signature_produces_no_event_and_no_processing(tmp_path) -> None:
+    provider = _provider(lambda r: httpx.Response(404))
+    app = create_app(
+        provider_registry={"stripe": provider},
+        database_url=f"sqlite:///{(tmp_path / 'bad.db').as_posix()}",
+    )
+    payload, _ = _signed_event()
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhooks/stripe", content=payload,
+            headers={"Stripe-Signature": _signed_event(secret="whsec_attacker")[1]},
+        )
+        assert response.status_code == 400
+    with session_scope() as session:
+        assert session.query(RawWebhookEvent).count() == 0
+        assert session.query(InternalEvent).count() == 0
