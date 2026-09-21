@@ -1,13 +1,22 @@
-# Self-distilling payment recovery agent
+# Self-Distilling Payment Recovery Agent
 
 **An LLM that writes the rules that replace it.**
 
-Failed payments are triaged by a deterministic rule router; only ambiguous
+**The problem.** A recovery agent that asks an LLM about every failed
+payment pays — in tokens and latency — to re-derive the same decision over
+and over: most failures of a given kind need the same response.
+
+**The idea.** Failed payments are triaged by a deterministic rule router; only ambiguous
 cases reach an LLM agent. The agent's successful decisions are clustered, an LLM
 proposes a rule for each cluster in a small closed grammar, and each rule must
 earn its place in *shadow* before it is promoted. Promoted rules are demoted
 automatically when their live recovery degrades. The system stops paying twice
 for the same reasoning.
+
+**"Self-distilling" means rules, not weights.** Validated LLM behaviour is
+converted into deterministic rules in a closed grammar. No model is
+fine-tuned or retrained, and the LLM remains the fallback for every case the
+rules do not cover.
 
 ![Modelled cost per 1,000 failures, recovery rate with a 95% Wilson band, and LLM share over simulated time, with concept drift at case 250](evals/cost_curve.png)
 
@@ -64,6 +73,61 @@ pending approvals.
 
 > 🎬 *Video placeholder — a 60-second walkthrough of `make demo` and the
 > dashboard will go here.*
+
+## Live demo
+
+A sandbox deployment runs on Render (free tier, so the first request after a
+period of inactivity can take up to a minute while the service wakes):
+<https://self-distilling-payment-recovery-agent.onrender.com>
+
+What has been verified **on that deployment** — a live *integration* check,
+separate from the synthetic evaluation:
+
+- `/health` answers, and the dashboard renders the frozen evaluation results.
+- A Razorpay-style `payment.failed` webhook signed with the configured webhook
+  secret is accepted (HTTP 200); the same body with a wrong signature is
+  rejected (HTTP 400).
+- The accepted event is persisted, normalised (amount in rupees, the shared
+  failure-reason enum) and processed by the live pipeline; the result appears
+  in the dashboard's *Live application* section.
+
+The test events used synthetic payment ids, not real payments in a Razorpay
+test account. The pipeline therefore could not fetch the payment from Razorpay
+and recorded each event as `failed`, taking no action — the correct behaviour.
+**No payment has been recovered through the deployment, and no real money is
+involved: the app accepts only test credentials.**
+
+Demo path, about three minutes:
+
+1. Open the dashboard. **Cost curve** and **Headline** show the synthetic
+   evaluation: recovery 74.9% in both arms, LLM share 90.6% → 55.9%, modelled
+   cost $1.50 → $0.92 per 1,000 failures.
+2. **Rules · evaluation run** shows the distilled rules as `active`, `shadow`
+   and `demoted` (card_declined, after the concept drift), with provenance.
+3. **Live application** shows what the deployed instance has actually received
+   and done. Nothing in it is synthesised.
+4. Send a signed test webhook. The helper reads `RAZORPAY_WEBHOOK_SECRET` from
+   your environment, which must match the deployment's:
+
+   ```bash
+   python scripts/send_razorpay_test_webhook.py --payment-id pay_demo_001 --amount-inr 1000 --error-reason insufficient_funds --url https://self-distilling-payment-recovery-agent.onrender.com/webhooks/razorpay
+   ```
+
+   Expect `200`; add `--bad-signature` to see `400`.
+5. Reload the dashboard. The event appears under *Received webhooks* and as a
+   ledger row; with a synthetic payment id it is recorded as `failed`, with no
+   action taken.
+6. With a **real failed payment in a Razorpay test account** and test API keys
+   configured, the pipeline can fetch the payment, route it (a seed rule or the
+   agent) and act through the guarded executor — for example by creating a
+   test-mode payment link. That path is described in
+   [`docs/RAZORPAY_TEST_MODE.md`](docs/RAZORPAY_TEST_MODE.md) and covered by an
+   automated test against a mocked Razorpay API; it has not yet been run with a
+   real test payment.
+
+Deployment limitations: a single instance; SQLite on Render's ephemeral
+filesystem, so live state resets on every redeploy or restart (the seed rules
+are re-inserted at startup); no authentication on the dashboard.
 
 ## Architecture
 
@@ -144,8 +208,10 @@ provider enrichment → policy router → ACTIVE rule | agent loop
 
 `tests/test_live_pipeline.py` drives the real app with signed webhooks for all of
 the above. A manual procedure for Razorpay TEST mode is in
-[`docs/RAZORPAY_TEST_MODE.md`](docs/RAZORPAY_TEST_MODE.md) — written, but not yet
-run against a real Razorpay account.
+[`docs/RAZORPAY_TEST_MODE.md`](docs/RAZORPAY_TEST_MODE.md). Its signed-webhook
+step has been run against the Render deployment with a synthetic payment id
+(see [Live demo](#live-demo)); the full path with a real Razorpay test
+payment has not yet been run.
 
 ## Results
 
@@ -471,9 +537,11 @@ About 167 failures a second. In roughly the order they would bite:
 - **The LLM customer simulator is a scaffold.** `CachedLLMCustomerSimulator`
   falls back to the deterministic persona simulator; the LLM persona path is not
   implemented. Every recovery number comes from the deterministic simulator.
-- **No live model and no live provider has been exercised.** The stub drives
-  every number; the Groq client and both adapters are tested only against mocks.
-  The Razorpay TEST-mode procedure is written but has not been run.
+- **No live model, and no real provider payment, has been exercised.** The
+  stub drives every number; the Groq client and the Stripe adapter are tested
+  only against mocks. On Razorpay, only the signed-webhook path has run against
+  the deployment (with a synthetic payment id); no real test payment has gone
+  through the pipeline.
 - **Approvals cannot be decided over HTTP.** High-value actions are held
   safely, but there is no authenticated route to approve or reject them, so they
   stay pending.
@@ -491,9 +559,10 @@ About 167 failures a second. In roughly the order they would bite:
   source for this reason.
 - **Supply chain:** dependencies are pinned but not hash-locked, and GitHub
   Actions are pinned by major version tag rather than commit SHA.
-- **Verification gaps.** Development happened on Python 3.13. Python 3.11 and
-  the Docker image are verified only by CI, which has not run yet: this
-  repository has no remote.
+- **Verification.** Development happened on Python 3.13. GitHub Actions runs
+  the full suite on Python 3.11 and builds the Docker image, running the suite
+  inside it — see the repository's Actions tab for current status. Render
+  builds and serves the runtime image.
 
 ## Repository map
 

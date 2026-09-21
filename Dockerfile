@@ -40,6 +40,8 @@ COPY prompts ./prompts
 # --- test stage: the complete suite, inside the 3.11 image -----------------
 FROM base AS test
 COPY tests ./tests
+# The suite also exercises the manual Razorpay helper script.
+COPY scripts ./scripts
 RUN python -m pytest -q -p no:cacheprovider
 
 # --- runtime stage (default target) -----------------------------------------

@@ -4,10 +4,13 @@ This walks a real Razorpay **test-mode** webhook through the live application:
 signature check → raw persistence → normalisation → policy router → rule or
 agent → guarded executor → Razorpay TEST API → trajectory → ledger → dashboard.
 
-> **Status: written, not yet executed by the author.** No request from this
-> codebase has ever reached Razorpay's real API. The same code path is covered
-> by an automated test against a *mocked* Razorpay API, using the exact payload
-> and signature this procedure sends
+> **Status.** The signed-webhook step (4B) has been run against the Render
+> deployment with a synthetic payment id: a correctly signed body returned 200
+> and was recorded — as `failed`, because the payment is not real — and a
+> wrongly signed body returned 400. The full path with a real failed payment in
+> a Razorpay test account has not yet been run. That path is covered by an
+> automated test against a *mocked* Razorpay API, using the exact payload and
+> signature this procedure sends
 > (`tests/test_live_pipeline.py::test_razorpay_webhook_from_the_manual_procedure_runs_the_live_pipeline`).
 > What remains unverified is listed at the end. CI never needs a Razorpay
 > account.
@@ -167,8 +170,9 @@ To start over, stop the app and delete `payment_recovery.db`.
 
 ## What remains manual or unverified
 
-- **No call from this codebase has reached Razorpay.** Every Razorpay response
-  shape the adapter relies on is an assumption encoded in test mocks.
+- **No successful call from this codebase to Razorpay's API has been
+  observed.** Every Razorpay response shape the adapter relies on is an
+  assumption encoded in test mocks.
 - **Payment-link creation** sends `amount`, `currency`, `description` and
   `reference_id` (the payment id). Whether Razorpay accepts exactly this body is
   unverified; a second link for the same payment is prevented by the executor's
