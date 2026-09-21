@@ -229,3 +229,27 @@ def test_webhook_path_is_unchanged_alongside_playground_runs(tmp_path) -> None:
     # the real provider was used for the real event, the demo provider for the demo
     assert provider.calls["create_payment_link"] == [(800.0,)]
     assert "1 normalised webhook event(s) received" in dashboard  # demo run is not a webhook
+
+
+def test_activity_lists_only_real_demo_runs_as_recorded(tmp_path) -> None:
+    provider = _provider(("pay_w2", 800.0, FailureReason.INVALID_DETAILS))
+    app, _ = _app(tmp_path, provider)
+    with TestClient(app) as client:
+        assert client.get("/playground/api/activity").json() == {"mode": "simulation", "runs": []}
+        rule = _run(client, payment_id="pay_demo_a", failure_reason="invalid_details").json()
+        llm = _run(client, payment_id="pay_demo_b", failure_reason="insufficient_funds").json()
+        _send(client, provider, "pay_w2", 800.0, FailureReason.INVALID_DETAILS, "evt_w2")  # a webhook row
+        runs = client.get("/playground/api/activity").json()["runs"]
+
+    assert [r["ledger_id"] for r in runs] == [llm["ledger_id"], rule["ledger_id"]]  # newest first, no webhook row
+    newest, oldest = runs
+    assert (newest["path"], newest["llm_calls"], newest["outcome"]) == ("llm", llm["llm"]["calls"], llm["outcome"])
+    assert (oldest["path"], oldest["llm_calls"], oldest["execution_status"]) == ("deterministic", 0, "executed")
+    assert all(r["recorded_at"].endswith("+00:00") for r in runs)
+
+
+def test_overview_failure_reasons_are_the_backend_enum(tmp_path) -> None:
+    app, _ = _app(tmp_path, _provider())
+    with TestClient(app) as client:
+        reasons = client.get("/playground/api/overview").json()["failure_reasons"]
+    assert reasons == [r.value for r in FailureReason]

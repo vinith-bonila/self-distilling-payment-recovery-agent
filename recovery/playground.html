@@ -3,83 +3,151 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
-<meta name="description" content="Run a synthetic failed payment through the live recovery pipeline and watch the agent choose between a learned rule and the LLM.">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="An LLM that writes the rules that replace it: a payment-recovery agent that turns validated agent behavior into deterministic rules. Simulation / test mode.">
 <title>Agent Playground · Self-Distilling Agent</title>
+<script>
+try { const t = localStorage.getItem("sda-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <style>
+/* ================================================================ tokens */
 :root{
-  --bg:#07080b;--bg-2:#0b0d11;--panel:rgba(255,255,255,.024);--panel-2:rgba(255,255,255,.04);
-  --line:rgba(255,255,255,.075);--line-2:rgba(255,255,255,.14);--line-3:rgba(255,255,255,.22);
-  --fg:#f3f4f6;--fg-2:#c9ccd2;--muted:#8a8f99;--dim:#565b65;
-  --red:#ff3547;--red-2:#e0283a;--red-soft:rgba(255,53,71,.12);--red-glow:rgba(255,53,71,.38);
+  --bg:#06070a;--bg-2:#0b0e14;--surface:rgba(255,255,255,.028);--surface-2:rgba(255,255,255,.05);--surface-solid:#0c0f15;--field:rgba(0,0,0,.35);
+  --line:rgba(170,190,255,.08);--line-2:rgba(170,190,255,.15);--line-3:rgba(170,190,255,.26);
+  --fg:#f2f4f8;--fg-2:#c3cad6;--muted:#8b94a7;--dim:#5d6578;
+  --red:#ff3547;--red-2:#e0283a;--red-soft:rgba(255,53,71,.11);--red-glow:rgba(255,53,71,.38);
+  --blue:#4d8dff;--blue-soft:rgba(77,141,255,.11);--blue-glow:rgba(77,141,255,.35);
   --ok:#3fd79b;--warn:#f4b64a;--bad:#ff6b76;
+  --shadow:0 30px 80px -40px rgba(0,0,0,.85);--nav-bg:rgba(6,7,10,.74);--grid-op:.42;
+  --glow-a:rgba(255,53,71,.065);--glow-b:rgba(77,141,255,.07);
   --sans:"Inter","Inter var",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace;
   --r-sm:10px;--r:14px;--r-lg:20px;--ease:cubic-bezier(.2,.7,.2,1);
 }
+:root[data-theme="light"]{
+  --bg:#f3f5f8;--bg-2:#ffffff;--surface:rgba(255,255,255,.82);--surface-2:rgba(16,24,40,.04);--surface-solid:#ffffff;--field:#ffffff;
+  --line:rgba(16,24,40,.09);--line-2:rgba(16,24,40,.15);--line-3:rgba(16,24,40,.26);
+  --fg:#0d1320;--fg-2:#2a3346;--muted:#566074;--dim:#8a93a6;
+  --red:#d61f33;--red-2:#bd1a2c;--red-soft:rgba(214,31,51,.08);--red-glow:rgba(214,31,51,.24);
+  --blue:#1d5bd6;--blue-soft:rgba(29,91,214,.08);--blue-glow:rgba(29,91,214,.22);
+  --ok:#0e8f5b;--warn:#9a620a;--bad:#c3303c;
+  --shadow:0 24px 60px -38px rgba(16,24,40,.35);--nav-bg:rgba(243,245,248,.82);--grid-op:.55;
+  --glow-a:rgba(214,31,51,.045);--glow-b:rgba(29,91,214,.06);
+}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){
+  --bg:#f3f5f8;--bg-2:#ffffff;--surface:rgba(255,255,255,.82);--surface-2:rgba(16,24,40,.04);--surface-solid:#ffffff;--field:#ffffff;
+  --line:rgba(16,24,40,.09);--line-2:rgba(16,24,40,.15);--line-3:rgba(16,24,40,.26);
+  --fg:#0d1320;--fg-2:#2a3346;--muted:#566074;--dim:#8a93a6;
+  --red:#d61f33;--red-2:#bd1a2c;--red-soft:rgba(214,31,51,.08);--red-glow:rgba(214,31,51,.24);
+  --blue:#1d5bd6;--blue-soft:rgba(29,91,214,.08);--blue-glow:rgba(29,91,214,.22);
+  --ok:#0e8f5b;--warn:#9a620a;--bad:#c3303c;
+  --shadow:0 24px 60px -38px rgba(16,24,40,.35);--nav-bg:rgba(243,245,248,.82);--grid-op:.55;
+  --glow-a:rgba(214,31,51,.045);--glow-b:rgba(29,91,214,.06);
+}}
+
+/* ================================================================ base */
 *{box-sizing:border-box}
-html{background:var(--bg);-webkit-text-size-adjust:100%}
-body{margin:0;min-height:100vh;color:var(--fg);font:15px/1.55 var(--sans);letter-spacing:-.005em;
-  background:
-    radial-gradient(900px 520px at 22% 38%,rgba(255,53,71,.075),transparent 70%),
-    radial-gradient(700px 420px at 85% 0%,rgba(255,255,255,.035),transparent 70%),
-    var(--bg);overflow-x:hidden}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
-  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-  background-size:56px 56px;opacity:.45;
-  -webkit-mask-image:radial-gradient(ellipse 80% 60% at 40% 30%,#000 20%,transparent 75%);
-          mask-image:radial-gradient(ellipse 80% 60% at 40% 30%,#000 20%,transparent 75%)}
-body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.05;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+html{background:var(--bg);-webkit-text-size-adjust:100%;scroll-padding-top:76px}
+body{margin:0;min-height:100vh;color:var(--fg);font:15px/1.55 var(--sans);letter-spacing:-.005em;overflow-x:hidden;
+  background:radial-gradient(900px 520px at 18% 18%,var(--glow-a),transparent 70%),radial-gradient(800px 480px at 88% 6%,var(--glow-b),transparent 70%),var(--bg)}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:var(--grid-op);
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:56px 56px;
+  -webkit-mask-image:radial-gradient(ellipse 80% 55% at 40% 20%,#000 15%,transparent 75%);mask-image:radial-gradient(ellipse 80% 55% at 40% 20%,#000 15%,transparent 75%)}
 .wrap{position:relative;z-index:1;max-width:1240px;margin:0 auto;padding:0 28px}
 a{color:inherit}
+:focus-visible{outline:2px solid var(--red);outline-offset:2px;border-radius:6px}
 .mono{font-family:var(--mono);letter-spacing:0}
-.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.eyebrow{font:600 11px/1.2 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
 .muted{color:var(--muted)}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-/* ---------- nav ---------- */
-.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);
-  background:rgba(7,8,11,.72);border-bottom:1px solid var(--line)}
-.nav .wrap{display:flex;align-items:center;gap:28px;height:62px}
-.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:600;font-size:15px;white-space:nowrap}
+/* ================================================================ nav */
+.nav{position:sticky;top:0;z-index:30;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);background:var(--nav-bg);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:20px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:650;font-size:15px;white-space:nowrap;min-width:0}
 .brand svg{flex:none}
-.links{display:flex;gap:4px;margin-left:12px}
+.links{display:flex;gap:2px;margin-left:10px}
 .links a{text-decoration:none;color:var(--muted);font-size:14px;padding:7px 12px;border-radius:8px;transition:color .2s,background .2s}
-.links a:hover{color:var(--fg);background:var(--panel-2)}
-.links a[aria-current]{color:var(--fg);background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--line)}
-.live{margin-left:auto;display:flex;align-items:center;gap:8px;font:600 11px/1 var(--mono);letter-spacing:.16em;color:var(--fg-2)}
-.live i{width:7px;height:7px;border-radius:50%;background:var(--dim)}
-.live.on i{background:var(--red);box-shadow:0 0 0 0 var(--red-glow);animation:pulse 2.2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 var(--red-glow)}70%{box-shadow:0 0 0 8px rgba(255,53,71,0)}100%{box-shadow:0 0 0 0 rgba(255,53,71,0)}}
+.links a:hover{color:var(--fg);background:var(--surface-2)}
+.links a[aria-current]{color:var(--fg);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line)}
+.nav-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.sys{display:flex;align-items:center;gap:8px;font:600 10.5px/1 var(--mono);letter-spacing:.14em;color:var(--fg-2);white-space:nowrap}
+.sys i{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.sys.on i{background:var(--ok);box-shadow:0 0 0 3px rgba(63,215,155,.14)}
+.sys.off i{background:var(--bad)}
+.simtag{font:650 10px/1 var(--mono);letter-spacing:.14em;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:6px;padding:6px 8px;white-space:nowrap}
+.iconbtn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line-2);background:var(--surface);color:var(--fg-2);display:grid;place-items:center;cursor:pointer;transition:border-color .2s,color .2s}
+.iconbtn:hover{border-color:var(--line-3);color:var(--fg)}
+.iconbtn .ic{width:17px;height:17px}
+.i-sun{display:none}
+:root[data-theme="light"] .i-sun{display:block}:root[data-theme="light"] .i-moon{display:none}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .i-sun{display:block}:root:not([data-theme="dark"]) .i-moon{display:none}}
+.mmenu{display:none;position:relative}
+.mmenu summary{list-style:none}.mmenu summary::-webkit-details-marker{display:none}
+.mmenu .sheet{position:absolute;right:0;top:46px;min-width:200px;padding:6px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface-solid);box-shadow:var(--shadow);display:grid}
+.mmenu .sheet a{text-decoration:none;padding:12px 14px;border-radius:8px;font-size:15px;color:var(--fg-2)}
+.mmenu .sheet a[aria-current]{color:var(--fg);background:var(--surface-2)}
 
-/* ---------- hero ---------- */
-.hero{padding:72px 0 36px;display:grid;grid-template-columns:1.2fr .8fr;gap:48px;align-items:end}
-.sim-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 11px;border-radius:999px;border:1px solid rgba(244,182,74,.35);
-  background:rgba(244,182,74,.07);color:var(--warn);font:600 11px/1 var(--mono);letter-spacing:.14em}
-.sim-badge::before{content:"";width:6px;height:6px;border-radius:1px;background:currentColor;transform:rotate(45deg)}
-h1{font-size:clamp(44px,7.2vw,88px);line-height:.96;letter-spacing:-.045em;font-weight:650;margin:22px 0 0}
-h1 em{font-style:normal;color:var(--red);text-shadow:0 0 42px rgba(255,53,71,.28)}
-.lede{color:var(--fg-2);font-size:17px;line-height:1.6;max-width:560px;margin:0}
-.lede span{display:block;color:var(--muted);margin-top:10px}
+/* demo / test environment bar */
+.demobar{position:relative;z-index:1;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--warn) 6%,transparent)}
+.demobar .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding-top:10px;padding-bottom:10px;font-size:13.5px;color:var(--fg-2)}
+.demobar b{font:650 10.5px/1 var(--mono);letter-spacing:.14em;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:6px;padding:6px 8px;white-space:nowrap}
+.demobar span{flex:1 1 320px;min-width:0}
+.demobar a{font-size:13px;color:var(--fg-2);white-space:nowrap}
+
+/* ================================================================ hero */
+.hero{padding:48px 0 34px;display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,.98fr);gap:40px;align-items:center}
+h1{font-size:clamp(34px,5.4vw,66px);line-height:1;letter-spacing:-.045em;font-weight:680;margin:14px 0 18px}
+h1 em{font-style:normal;color:var(--red)}
+.lede{color:var(--fg-2);font-size:clamp(16px,1.5vw,18px);line-height:1.55;max-width:560px;margin:0}
 .status{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
-.chip{display:inline-flex;align-items:center;gap:8px;padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);
-  font:600 10.5px/1 var(--mono);letter-spacing:.12em;color:var(--fg-2);white-space:nowrap}
-.chip i{width:6px;height:6px;border-radius:50%;background:var(--dim)}
-.chip.ok i{background:var(--ok);box-shadow:0 0 8px rgba(63,215,155,.6)}
-.chip.bad i{background:var(--bad)}
-.chip small{font-weight:500;letter-spacing:.04em;color:var(--muted);text-transform:none}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font:600 10.5px/1.2 var(--mono);letter-spacing:.1em;color:var(--fg-2)}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--dim);flex:none}
+.chip.ok i{background:var(--ok)}.chip.bad i{background:var(--bad)}
+.chip small{font-weight:500;letter-spacing:.02em;color:var(--muted)}
 
-/* ---------- panels ---------- */
-.panel{position:relative;border:1px solid var(--line);border-radius:var(--r-lg);
-  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 30px 80px -40px rgba(0,0,0,.8)}
-.panel-h{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+/* what did we build card */
+.built{padding:22px 22px 18px}
+.built h2{font:650 11px/1.2 var(--mono);letter-spacing:.16em;color:var(--red);margin:0 0 10px}
+.built p{margin:0 0 10px;color:var(--fg-2);font-size:14.5px}
+.built p strong{color:var(--fg)}
+.sflow{margin:16px 0 4px;display:grid;justify-items:center;gap:0}
+.sbox{width:100%;max-width:340px;text-align:center;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;background:var(--surface-solid);font-size:13.5px;font-weight:600}
+.sbox small{display:block;font:500 11px/1.4 var(--mono);color:var(--muted);margin-top:2px}
+.sbox.red{border-color:color-mix(in srgb,var(--red) 55%,transparent);background:var(--red-soft)}
+.sbox.blue{border-color:color-mix(in srgb,var(--blue) 55%,transparent);background:var(--blue-soft)}
+.sbox .ic{margin-right:4px}
+.sbox.red .ic{color:var(--red)}.sbox.blue .ic{color:var(--blue)}
+.sarrow{width:1px;height:16px;background:var(--line-3);position:relative;margin:2px 0}
+.sarrow::after{content:"";position:absolute;left:-3.5px;bottom:-2px;border:4px solid transparent;border-top:5px solid var(--line-3);border-bottom:0}
+.sfork{width:100%;max-width:440px;height:22px;display:block;color:var(--line-3)}
+.sbranch{width:100%;max-width:460px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sbranch .sbox{max-width:none}
+.sbranch em{display:block;font:650 10px/1.2 var(--mono);letter-spacing:.14em;font-style:normal;color:var(--muted);margin-bottom:3px}
+.over{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line-2);font-size:13px;color:var(--fg-2)}
+.over b{color:var(--fg)}
+
+/* ================================================================ panels */
+.panel{position:relative;border:1px solid var(--line);border-radius:var(--r-lg);background:linear-gradient(180deg,var(--surface-2),var(--surface));box-shadow:var(--shadow)}
+.panel-h{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:15px 20px;border-bottom:1px solid var(--line)}
 .panel-h .eyebrow{color:var(--fg-2)}
-.tag{font:500 10.5px/1 var(--mono);color:var(--muted);padding:5px 8px;border:1px solid var(--line);border-radius:6px;white-space:nowrap}
+.tag{font:500 10.5px/1.2 var(--mono);color:var(--muted);padding:5px 8px;border:1px solid var(--line);border-radius:6px;white-space:nowrap}
 
-/* ---------- stage ---------- */
-.stage{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(0,.82fr);gap:24px;padding:12px 0 40px;align-items:start}
-.core-panel{overflow:hidden;position:sticky;top:78px}
+/* ================================================================ stage */
+.stage{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(0,.82fr);gap:24px;padding:8px 0 24px;align-items:start}
+/* The decision core is an instrument panel: it keeps its dark palette in both themes. */
+.core-panel{--fg:#f2f4f8;--fg-2:#c3cad6;--muted:#8b94a7;--dim:#5d6578;--line:rgba(170,190,255,.08);--line-2:rgba(170,190,255,.15);--line-3:rgba(170,190,255,.26);
+  --red:#ff3547;--red-soft:rgba(255,53,71,.11);--red-glow:rgba(255,53,71,.38);--blue:#4d8dff;--blue-soft:rgba(77,141,255,.12);--ok:#3fd79b;--warn:#f4b64a;--bad:#ff6b76;--surface-2:rgba(255,255,255,.05);
+  color:var(--fg);background:linear-gradient(180deg,#0d1017,#080a0f);border-color:rgba(170,190,255,.12);scroll-margin-top:70px}
+.core-cap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:12px 20px 0;font-size:13.5px;color:var(--fg-2)}
+.pathind{display:inline-flex;align-items:center;gap:7px;font:650 11px/1 var(--mono);letter-spacing:.14em;padding:7px 10px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted);white-space:nowrap}
+.pathind.rule{color:#fff;border-color:rgba(255,53,71,.6);background:var(--red-soft)}.pathind.rule .ic{color:var(--red)}
+.pathind.llm{color:#fff;border-color:rgba(77,141,255,.6);background:var(--blue-soft)}.pathind.llm .ic{color:var(--blue)}
+.pathind.warn{color:var(--warn);border-color:rgba(244,182,74,.45)}.pathind.bad{color:var(--bad);border-color:rgba(255,107,118,.45)}
+
+/* ---- decision core (unchanged movement; LLM segment coloured blue) ---- */
+.core-panel{overflow:hidden}
 .core-panel::before{content:"";position:absolute;left:50%;top:46%;width:520px;height:520px;transform:translate(-50%,-50%);
   background:radial-gradient(circle,rgba(255,53,71,.10),transparent 62%);pointer-events:none;transition:opacity .4s}
 .core-panel.busy::before{opacity:1.6;background:radial-gradient(circle,rgba(255,53,71,.17),transparent 62%)}
@@ -118,253 +186,447 @@ h1 em{font-style:normal;color:var(--red);text-shadow:0 0 42px rgba(255,53,71,.28
 .pf.on{opacity:1}
 .sig{fill:#fff;opacity:0}
 .sig-glow{fill:var(--red);opacity:0;filter:url(#blur)}
+.flow[data-k="toLlm"],.flow[data-k="fromLlm"]{stroke:var(--blue)}
+.node[data-id="llm"].active circle.ring{stroke:var(--blue);fill:#0b1326}
+.node[data-id="llm"] circle.halo{stroke:var(--blue)}
 .readout{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line)}
 .readout div{padding:14px 18px;border-right:1px solid var(--line);min-width:0}
 .readout div:last-child{border-right:0}
 .readout b{display:block;font:600 10px/1 var(--mono);letter-spacing:.14em;color:var(--muted);margin-bottom:8px}
 .readout span{font:600 14px/1.2 var(--mono);color:var(--fg);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.readout span.red{color:var(--red)}.readout span.warn{color:var(--warn)}.readout span.bad{color:var(--bad)}.readout span.ok{color:var(--ok)}
+.readout span.red{color:var(--red)}.readout span.warn{color:var(--warn)}.readout span.bad{color:var(--bad)}.readout span.ok{color:var(--ok)}.readout span.blue{color:var(--blue)}
 
-/* ---------- console ---------- */
-.console .body{padding:20px}
+/* ---- mobile decision flow: the same nodes, laid out vertically ---- */
+.mflow{display:none;list-style:none;margin:0;padding:16px 16px 18px}
+.mnode{display:flex;align-items:center;gap:12px;border:1px solid var(--line-2);border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.02);transition:border-color .25s,background .25s,opacity .25s}
+.mnode .mi{width:36px;height:36px;border-radius:50%;border:1px solid var(--line-3);display:grid;place-items:center;flex:none;color:var(--muted);transition:all .25s}
+.mnode .mi .ic{width:17px;height:17px}
+.mnode b{display:block;font:650 12px/1.25 var(--mono);letter-spacing:.12em;color:var(--fg)}
+.mnode small{display:block;font:500 12px/1.4 var(--sans);color:var(--muted);margin-top:2px}
+.mnode.active{border-color:var(--red);background:var(--red-soft)}
+.mnode.active .mi{border-color:var(--red);color:#fff}
+.mnode.done{border-color:rgba(255,255,255,.4)}
+.mnode.done .mi{border-color:rgba(255,255,255,.55);color:var(--fg)}
+.mnode.skipped{opacity:.35}
+.mnode.warn{border-color:var(--warn)}.mnode.bad{border-color:var(--bad)}
+.mnode.m-llm.active{border-color:var(--blue);background:var(--blue-soft)}
+.mnode.m-llm.active .mi,.mnode.m-llm.done .mi{border-color:var(--blue);color:var(--blue)}
+.mnode.m-llm.done{border-color:rgba(77,141,255,.6)}
+.mnode.m-rule.done,.mnode.m-rule.active{border-color:var(--red);background:var(--red-soft)}
+.mnode.m-rule.done .mi,.mnode.m-rule.active .mi{border-color:var(--red);color:var(--red)}
+.mconn{height:22px;width:2px;margin:0 auto;background:var(--line-2);position:relative;overflow:hidden}
+.mconn::after{content:"";position:absolute;left:0;top:0;width:100%;height:0;background:var(--red);transition:height .45s var(--ease)}
+.mconn.lit::after{height:100%}
+.mbranch{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mbranch .mnode{flex-direction:column;align-items:flex-start;gap:8px;padding:12px}
+.mout a{font-size:12px;color:var(--fg-2)}
+
+/* ================================================================ console */
+.console .body{padding:18px 20px 20px}
 .field{display:block;margin-bottom:14px}
-.field>span{display:flex;justify-content:space-between;font:600 10.5px/1 var(--mono);letter-spacing:.14em;color:var(--muted);margin-bottom:8px}
+.field>span{display:flex;justify-content:space-between;gap:8px;font:600 10.5px/1.2 var(--mono);letter-spacing:.14em;color:var(--muted);margin-bottom:8px}
 .field>span em{font-style:normal;color:var(--dim);letter-spacing:.04em;font-weight:500}
-.input{display:flex;align-items:center;height:44px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:rgba(0,0,0,.35);
-  transition:border-color .2s,box-shadow .2s}
-.input:focus-within{border-color:rgba(255,53,71,.7);box-shadow:0 0 0 3px rgba(255,53,71,.14)}
+.input{display:flex;align-items:center;height:46px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--field);transition:border-color .2s,box-shadow .2s}
+.input:focus-within{border-color:color-mix(in srgb,var(--red) 70%,transparent);box-shadow:0 0 0 3px var(--red-soft)}
 .input .pre{padding-left:13px;color:var(--dim);font:500 14px var(--mono)}
-.input input,.input select{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--fg);font:500 14px var(--mono);padding:0 13px;appearance:none;-webkit-appearance:none}
-.input select{cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
-  background-position:calc(100% - 18px) 19px,calc(100% - 13px) 19px;background-size:5px 5px;background-repeat:no-repeat}
-.input select option{background:#111318;color:var(--fg)}
+.input input,.input select{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--fg);font:500 14.5px var(--mono);padding:0 13px;appearance:none;-webkit-appearance:none}
+.input select{cursor:pointer;padding-right:34px;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 18px) 20px,calc(100% - 13px) 20px;background-size:5px 5px;background-repeat:no-repeat}
+.input select option{background:var(--surface-solid);color:var(--fg)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.actions{display:flex;gap:10px;margin-top:20px}
-.btn{height:48px;border-radius:12px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--fg);font:650 12px/1 var(--mono);letter-spacing:.14em;
+.hint{margin:-6px 0 14px;font-size:12px;color:var(--muted)}
+.actions{display:flex;gap:10px;margin-top:6px}
+.btn{min-height:50px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--fg);font:650 12.5px/1 var(--mono);letter-spacing:.14em;
   padding:0 18px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px;transition:transform .15s,background .2s,box-shadow .25s,border-color .2s}
-.btn:hover{border-color:var(--line-3);background:rgba(255,255,255,.07)}
+.btn:hover{border-color:var(--line-3)}
 .btn:active{transform:translateY(1px)}
-.btn.primary{flex:1;border-color:transparent;color:#fff;
-  background:linear-gradient(180deg,#ff4a5a,var(--red-2));box-shadow:0 1px 0 rgba(255,255,255,.3) inset,0 10px 30px -10px var(--red-glow)}
-.btn.primary:hover{box-shadow:0 1px 0 rgba(255,255,255,.3) inset,0 14px 40px -8px rgba(255,53,71,.6)}
+.btn.primary{flex:1;border-color:transparent;color:#fff;background:linear-gradient(180deg,#ff4a5a,#d9253a);box-shadow:0 1px 0 rgba(255,255,255,.3) inset,0 10px 30px -10px var(--red-glow)}
+.btn.primary:hover{box-shadow:0 1px 0 rgba(255,255,255,.3) inset,0 14px 40px -8px rgba(255,53,71,.55)}
 .btn:disabled{opacity:.55;cursor:progress}
-.btn:focus-visible,.lc button:focus-visible,summary:focus-visible{outline:2px solid var(--red);outline-offset:2px}
-.err{margin:12px 0 0;color:var(--bad);font:500 12.5px/1.5 var(--mono);min-height:0}
-.disclaim{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:12px 14px;border-radius:var(--r-sm);border:1px dashed rgba(244,182,74,.3);
-  background:rgba(244,182,74,.04);font-size:12.5px;color:var(--fg-2);line-height:1.5}
-.disclaim b{color:var(--warn);font:600 10.5px/1.6 var(--mono);letter-spacing:.12em;white-space:nowrap}
+.err{margin:12px 0 0;color:var(--bad);font:500 12.5px/1.5 var(--mono)}
+.err:empty{display:none}
+.notice{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:11px 13px;border-radius:var(--r-sm);border:1px dashed color-mix(in srgb,var(--warn) 45%,transparent);background:color-mix(in srgb,var(--warn) 5%,transparent);font-size:12.5px;color:var(--fg-2);line-height:1.5}
+.notice b{color:var(--warn);font:650 10.5px/1.6 var(--mono);letter-spacing:.12em;white-space:nowrap}
+.apinote{margin-top:10px;font:500 11px/1.4 var(--mono);color:var(--dim)}
 .store{border-top:1px solid var(--line);padding:14px 20px 18px}
+.store p{margin:6px 0 0;font-size:12.5px;color:var(--muted)}
 .store ul{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}
 .store li{display:flex;gap:8px;align-items:center;font:500 12px/1.4 var(--mono);color:var(--fg-2);min-width:0}
 .store li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .store li i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--ok)}
-.store li.shadow i{background:#8f8fff}.store li.demoted i{background:var(--bad)}.store li.disabled i{background:var(--dim)}
+.store li.shadow i{background:var(--blue)}.store li.demoted i{background:var(--bad)}.store li.disabled i{background:var(--dim)}
 
-/* ---------- trace ---------- */
-.trace{margin-top:24px}
-.trace ol{list-style:none;margin:0;padding:18px 20px 8px}
-.step{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr);gap:14px;padding-bottom:20px;
-  opacity:.28;transition:opacity .35s var(--ease),transform .35s var(--ease)}
-.step::before{content:"";position:absolute;left:16px;top:28px;bottom:0;width:1px;background:var(--line)}
+/* ================================================================ trace + resolution */
+.results{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start;padding-bottom:12px}
+.trace ol.tl{list-style:none;margin:0;padding:18px 20px 8px}
+.step{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr);gap:14px;padding-bottom:18px;opacity:.28;transition:opacity .35s var(--ease)}
+.step::before{content:"";position:absolute;left:16px;top:28px;bottom:0;width:1px;background:var(--line-2)}
 .step:last-child::before{display:none}
 .step::after{content:"";position:absolute;left:16px;top:28px;width:1px;height:0;background:linear-gradient(var(--red),transparent);transition:height .6s var(--ease)}
 .step.shown{opacity:1}
 .step.shown::after{height:calc(100% - 28px)}
 .step:last-child::after{display:none}
-.num{width:33px;height:28px;border-radius:8px;border:1px solid var(--line-2);display:grid;place-items:center;font:600 11px var(--mono);color:var(--muted);background:var(--bg-2);transition:all .3s}
-.step.shown .num{color:#fff;border-color:rgba(255,53,71,.6);box-shadow:0 0 16px -4px var(--red-glow)}
+.num{width:33px;height:28px;border-radius:8px;border:1px solid var(--line-2);display:grid;place-items:center;font:600 11px var(--mono);color:var(--muted);background:var(--surface-solid);transition:all .3s}
+.step.shown .num{color:var(--fg);border-color:color-mix(in srgb,var(--red) 60%,transparent)}
 .step.warn .num{border-color:var(--warn);color:var(--warn)}
 .step.bad .num{border-color:var(--bad);color:var(--bad)}
 .step h4{margin:4px 0 4px;font:600 11px/1.4 var(--mono);letter-spacing:.16em;color:var(--fg-2)}
-.step .main{font-size:15px;color:var(--fg);font-weight:550}
+.step .main{font-size:15px;color:var(--fg);font-weight:600}
 .step .meta{font:500 12px/1.6 var(--mono);color:var(--muted);word-break:break-word}
 .step .meta b{color:var(--fg-2);font-weight:600}
 .pill{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:999px;font:650 10.5px/1.4 var(--mono);letter-spacing:.12em;margin:2px 0 6px}
-.pill.det{color:#fff;background:var(--red-soft);border:1px solid rgba(255,53,71,.55)}
-.pill.llm{color:#e7e7ff;background:rgba(143,143,255,.1);border:1px solid rgba(143,143,255,.45)}
-.pill.warn{color:var(--warn);background:rgba(244,182,74,.08);border:1px solid rgba(244,182,74,.4)}
-.pill.bad{color:var(--bad);background:rgba(255,107,118,.08);border:1px solid rgba(255,107,118,.4)}
-.pill.ok{color:var(--ok);background:rgba(63,215,155,.07);border:1px solid rgba(63,215,155,.35)}
-.pill.sim{color:var(--warn);border:1px solid rgba(244,182,74,.35)}
+.pill.det{color:var(--fg);background:var(--red-soft);border:1px solid color-mix(in srgb,var(--red) 55%,transparent)}
+.pill.llm{color:var(--fg);background:var(--blue-soft);border:1px solid color-mix(in srgb,var(--blue) 55%,transparent)}
+.pill.warn{color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent)}
+.pill.bad{color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 45%,transparent)}
+.pill.ok{color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 40%,transparent)}
+.pill.sim{color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
 .kv{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px;font:500 12px var(--mono);color:var(--muted)}
-.kv b{color:#fff;font-weight:650}
-.kv b.red{color:var(--red)}
-.steps{margin:8px 0 0;padding:0;list-style:none;border-left:1px solid var(--line-2);display:grid;gap:3px}
+.kv b{color:var(--fg);font-weight:650}
+.kv b.red{color:var(--red)}.kv b.blue{color:var(--blue)}
+.steps{margin:8px 0 0;padding:0 0 0 0;list-style:none;border-left:1px solid var(--line-2);display:grid;gap:3px}
 .steps li{padding-left:12px;font:500 12px/1.5 var(--mono);color:var(--fg-2);word-break:break-word}
 .steps li span{color:var(--dim)}
-.shimmer{background:linear-gradient(90deg,var(--muted) 20%,#fff 50%,var(--muted) 80%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 1.3s linear infinite}
+.shimmer{background:linear-gradient(90deg,var(--muted) 20%,var(--fg) 50%,var(--muted) 80%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 1.3s linear infinite}
 @keyframes sh{to{background-position:-200% 0}}
-.empty{padding:6px 20px 22px;color:var(--muted);font-size:13.5px}
+.empty{padding:16px 20px 22px;color:var(--muted);font-size:13.5px;margin:0}
 
-/* ---------- sections ---------- */
-section.block{padding:76px 0 8px}
-.sec-h{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:30px}
-h2{font-size:clamp(32px,4.6vw,56px);line-height:1.02;letter-spacing:-.04em;font-weight:650;margin:12px 0 0}
-h2 em{font-style:normal;color:var(--red)}
-.sec-h p{margin:0;max-width:430px;color:var(--fg-2);font-size:16px}
-.src{display:inline-flex;gap:8px;align-items:center;font:600 10.5px/1 var(--mono);letter-spacing:.14em;color:var(--warn);
-  border:1px solid rgba(244,182,74,.3);border-radius:6px;padding:6px 9px;background:rgba(244,182,74,.05)}
+.resolution .rbody{padding:20px 22px 22px}
+.resolution .rbody[hidden]{display:none}
+.resolution.reveal .rbody{animation:rise .45s var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.rstatus{font:700 clamp(30px,4.4vw,52px)/1 var(--sans);letter-spacing:-.035em;margin:0 0 8px;word-break:break-word}
+.rstatus.ok{color:var(--ok)}.rstatus.warn{color:var(--warn)}.rstatus.bad{color:var(--bad)}.rstatus.neutral{color:var(--fg)}
+.rsub{margin:0 0 18px;color:var(--fg-2);font-size:14.5px}
+.rlabel{margin:0 0 6px;font:600 10px/1.2 var(--mono);letter-spacing:.14em;color:var(--muted)}
+.rnote{margin:12px 0 0;padding:10px 12px;border-radius:10px;border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);font-size:13px;color:var(--fg-2)}
+.rnote[hidden]{display:none}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:0}
+.rgrid div{background:var(--surface-solid);padding:12px 14px;min-width:0}
+.rgrid dt{font:600 10px/1.2 var(--mono);letter-spacing:.14em;color:var(--muted);margin-bottom:6px}
+.rgrid dd{margin:0;font:600 14px/1.35 var(--mono);color:var(--fg);word-break:break-word}
+.rgrid dd small{display:block;font:500 12px/1.4 var(--sans);color:var(--muted);margin-top:2px}
+.rgrid .wide{grid-column:1/-1}
+.rpath{display:inline-flex;align-items:center;gap:7px}
+.rpath.rule{color:var(--red)}.rpath.llm{color:var(--blue)}
+.why{margin-top:14px;padding:14px 16px;border-radius:12px;border-left:3px solid var(--red);background:var(--red-soft)}
+.why.llm{border-left-color:var(--blue);background:var(--blue-soft)}
+.why b{display:block;font:650 10.5px/1.2 var(--mono);letter-spacing:.14em;color:var(--fg-2);margin-bottom:6px}
+.why p{margin:0;color:var(--fg);font-size:14.5px}
+.why p+p{margin-top:6px;color:var(--fg-2);font-size:13px}
+.rfoot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:14px;font:500 12px/1.4 var(--mono);color:var(--muted)}
+.rfoot b{color:var(--fg)}
 
-/* distillation — signature */
-.distill{overflow:hidden;padding:44px 36px 30px}
-.distill::before{content:"";position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(600px 260px at 58% 50%,rgba(255,53,71,.13),transparent 70%)}
-.dflow{position:relative;display:grid;grid-template-columns:1fr 84px 1fr 84px 1.35fr 84px 1fr;align-items:center}
-.dnode{position:relative;border:1px solid var(--line-2);border-radius:var(--r);padding:18px 16px;background:rgba(10,11,15,.8);min-height:150px;
-  display:flex;flex-direction:column;gap:6px}
-.dnode .k{font:600 10.5px/1 var(--mono);letter-spacing:.16em;color:var(--muted)}
-.dnode .t{font-size:18px;font-weight:620;letter-spacing:-.01em}
-.dnode .d{font-size:12.5px;color:var(--muted);line-height:1.5}
-.dnode svg{margin-bottom:4px}
-.dnode.rule{border-color:rgba(255,53,71,.6);background:linear-gradient(180deg,rgba(255,53,71,.1),rgba(12,8,10,.9));
-  box-shadow:0 0 0 1px rgba(255,53,71,.12),0 20px 60px -20px rgba(255,53,71,.45);min-height:190px}
-.dnode.rule .t{font-size:20px}
-.dnode.rule code{display:block;font:500 12px/1.55 var(--mono);color:#fff;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:8px;padding:9px 10px;word-break:break-word}
-.dnode.nollm .t{color:#fff}
-.dnode.nollm .big{font:700 30px/1 var(--mono);color:var(--red);letter-spacing:-.02em}
-.conn{position:relative;height:1px;background:linear-gradient(90deg,var(--line-2),rgba(255,53,71,.5),var(--line-2))}
-.conn i{position:absolute;top:-3px;left:0;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 12px 3px var(--red-glow);opacity:0;
-  animation:travelx 3.6s linear infinite}
-.conn:nth-of-type(4) i{animation-delay:1.2s}.conn:nth-of-type(6) i{animation-delay:2.4s}
-.conn span{position:absolute;left:50%;top:12px;transform:translateX(-50%);font:500 10px/1.35 var(--mono);color:var(--muted);text-align:center;width:78px}
-@keyframes travelx{0%{left:0;opacity:0}4%{opacity:1}30%{left:calc(100% - 7px);opacity:1}33%,100%{left:calc(100% - 7px);opacity:0}}
-@keyframes travely{0%{top:0;opacity:0}4%{opacity:1}30%{top:calc(100% - 7px);opacity:1}33%,100%{top:calc(100% - 7px);opacity:0}}
-.dnote{position:relative;margin-top:26px;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+/* ================================================================ sections */
+section.block{padding:72px 0 8px}
+.sec-h{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:26px}
+h2.big{font-size:clamp(30px,4.4vw,54px);line-height:1.03;letter-spacing:-.04em;font-weight:680;margin:10px 0 0}
+h2.big em{font-style:normal;color:var(--red)}
+.sec-h p{margin:0;max-width:460px;color:var(--fg-2);font-size:15.5px}
+.src{display:inline-flex;gap:8px;align-items:center;font:650 10.5px/1.2 var(--mono);letter-spacing:.14em;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:6px;padding:6px 9px}
+
+/* why should I care */
+.care{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:24px;align-items:stretch}
+.care .txt{padding:24px}
+.care .txt p{margin:0 0 12px;color:var(--fg-2);font-size:15.5px}
+.care .txt p:last-child{margin:0}
+.care .txt strong{color:var(--fg)}
+.lanes{padding:22px;display:grid;gap:16px;align-content:center}
+.lane{display:grid;grid-template-columns:minmax(0,1.1fr) 18px minmax(0,1fr) 18px minmax(0,1fr);align-items:center;gap:6px}
+.lane .lb{border:1px solid var(--line-2);border-radius:10px;padding:11px 12px;background:var(--surface-solid);font-size:13px;font-weight:600;min-width:0}
+.lane .lb small{display:block;font:500 11px/1.35 var(--mono);color:var(--muted);margin-top:2px}
+.lane .ar{height:1px;background:var(--line-3);position:relative}
+.lane .ar::after{content:"";position:absolute;right:-1px;top:-3.5px;border:4px solid transparent;border-left:5px solid var(--line-3);border-right:0}
+.lane.new .lb.k{border-color:color-mix(in srgb,var(--blue) 50%,transparent);background:var(--blue-soft)}
+.lane.known .lb.k{border-color:color-mix(in srgb,var(--red) 50%,transparent);background:var(--red-soft)}
+.lane .lb.res b{font:700 20px/1 var(--mono)}
+.lane.known .lb.res b{color:var(--red)}.lane.new .lb.res b{color:var(--blue)}
+.lanecap{font:650 10.5px/1.2 var(--mono);letter-spacing:.14em;color:var(--muted);margin-bottom:-8px}
+
+/* distillation */
+.dintro{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;margin-bottom:22px}
+.dintro p{margin:0;color:var(--fg-2);font-size:15.5px}
+.dintro .nf{font-size:13.5px;color:var(--muted);border-left:2px solid var(--line-3);padding-left:12px}
+.distill{padding:28px;overflow:hidden}
+.dgroups{display:grid;grid-template-columns:minmax(0,.8fr) 40px minmax(0,1.1fr) 40px minmax(0,1.1fr);align-items:stretch}
+.dgroup{border:1px solid var(--line);border-radius:var(--r);padding:14px;background:var(--surface-solid);display:flex;flex-direction:column}
+.dgroup>h3{margin:0 0 12px;font:650 10.5px/1.2 var(--mono);letter-spacing:.16em;color:var(--muted)}
+.dgroup.exec{border-color:color-mix(in srgb,var(--red) 40%,transparent)}
+.dstep{border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;opacity:.4;transition:opacity .4s var(--ease),border-color .4s,background .4s}
+.dstep b{display:flex;align-items:center;gap:7px;font:650 11.5px/1.3 var(--mono);letter-spacing:.1em;color:var(--fg)}
+.dstep small{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+.dstep.lit{opacity:1}
+.dstep.llm.lit{border-color:color-mix(in srgb,var(--blue) 55%,transparent);background:var(--blue-soft)}
+.dstep.llm b .ic{color:var(--blue)}
+.dstep.rule.lit{border-color:color-mix(in srgb,var(--red) 55%,transparent);background:var(--red-soft)}
+.dstep.rule b .ic{color:var(--red)}
+.dstep.zero b{font-size:13px}.dstep.zero .n{font:750 26px/1 var(--mono);color:var(--red);letter-spacing:-.02em;margin-right:4px}
+.dstep code{display:block;margin-top:6px;font:500 11.5px/1.5 var(--mono);color:var(--fg);background:var(--field);border:1px solid var(--line);border-radius:7px;padding:7px 8px;white-space:pre-wrap;word-break:break-word}
+.dv{width:1px;height:12px;background:var(--line-3);margin:0 auto}
+.dh{align-self:center;height:1px;background:var(--line-3);position:relative;overflow:hidden}
+.dh i,.dv i{display:block;background:var(--red);transition:width .5s var(--ease),height .5s var(--ease)}
+.dh i{height:100%;width:0}.dh.lit i{width:100%}
+.dnote{margin-top:20px;display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--muted)}
 .dnote .run{color:var(--fg-2)}
 
-/* cost */
-.cost{display:grid;grid-template-columns:1.25fr 1fr;gap:24px}
-.bars{padding:26px 26px 22px}
-.bar{margin-bottom:22px}
-.bar .lbl{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
-.bar .lbl span{font:600 10.5px/1 var(--mono);letter-spacing:.16em;color:var(--muted)}
-.bar .lbl b{font:650 22px/1 var(--mono);letter-spacing:-.02em}
-.track-b{position:relative;height:12px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid var(--line);overflow:hidden}
-.fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;transition:width 1.4s var(--ease);
-  background:repeating-linear-gradient(90deg,rgba(255,255,255,.9) 0 5px,transparent 5px 8px)}
-.fill.after{background:repeating-linear-gradient(90deg,var(--red) 0 5px,transparent 5px 8px);box-shadow:0 0 18px rgba(255,53,71,.35)}
-.bars .foot{font-size:12px;color:var(--muted);margin-top:4px}
-.stats{display:grid;grid-template-rows:repeat(3,1fr);gap:12px}
-.stat{padding:18px 22px;display:flex;align-items:center;gap:18px}
-.stat b{font:650 34px/1 var(--mono);letter-spacing:-.03em;min-width:128px}
-.stat b.red{color:var(--red)}
-.stat div{font-size:13px;color:var(--muted);line-height:1.45}
-.stat div strong{display:block;color:var(--fg);font:600 11px/1.5 var(--mono);letter-spacing:.14em}
+/* why distill */
+.cmp{display:grid;grid-template-columns:minmax(0,1fr) 190px minmax(0,1fr);gap:18px;align-items:stretch}
+.cmp .side{padding:22px}
+.cmp .side h3{margin:0 0 4px;font:650 11px/1.2 var(--mono);letter-spacing:.16em;color:var(--muted)}
+.cmp .side .v{font:700 clamp(34px,4vw,48px)/1.05 var(--mono);letter-spacing:-.03em;margin:8px 0 12px}
+.cmp .side.after .v{color:var(--red)}
+.track-b{position:relative;height:12px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;transition:width 1.2s var(--ease);background:repeating-linear-gradient(90deg,var(--blue) 0 5px,transparent 5px 8px)}
+.fill.after{background:repeating-linear-gradient(90deg,var(--red) 0 5px,transparent 5px 8px)}
+.cmp .side p{margin:10px 0 0;font-size:12.5px;color:var(--muted)}
+.delta{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px;border:1px solid color-mix(in srgb,var(--red) 40%,transparent);border-radius:var(--r-lg);background:var(--red-soft)}
+.delta b{font:750 44px/1 var(--mono);color:var(--red);letter-spacing:-.03em}
+.delta span{font:650 11px/1.3 var(--mono);letter-spacing:.14em;color:var(--fg);margin-top:8px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.tile{padding:20px 22px;display:flex;align-items:center;gap:18px}
+.tile b{font:700 32px/1 var(--mono);letter-spacing:-.03em;min-width:118px}
+.tile div{font-size:13px;color:var(--muted);line-height:1.45}
+.tile strong{display:block;color:var(--fg);font:650 11px/1.5 var(--mono);letter-spacing:.14em}
+.olabel{display:inline-block;margin-top:6px;font:650 9.5px/1 var(--mono);letter-spacing:.14em;color:var(--warn)}
+.plain{margin:18px 0 0;font-size:15px;color:var(--fg-2);max-width:760px}
 
 /* lifecycle */
-.lc{padding:26px}
-.lc-row{display:flex;align-items:center}
-.lc button{flex:none;position:relative;border:1px solid var(--line-2);background:rgba(10,11,15,.8);color:var(--fg-2);border-radius:10px;padding:11px 12px;
-  font:600 10.5px/1.2 var(--mono);letter-spacing:.12em;cursor:pointer;transition:all .2s;text-align:left}
-.lc button small{display:block;margin-top:5px;font:500 10px var(--mono);letter-spacing:.02em;color:var(--dim)}
-.lc button:hover{border-color:var(--line-3);color:#fff}
-.lc button[aria-pressed=true]{border-color:var(--red);color:#fff;background:rgba(255,53,71,.1);box-shadow:0 0 22px -6px var(--red-glow)}
-.lc button.demote{border-style:dashed}
-.lc .ar{flex:1;min-width:10px;height:1px;background:var(--line-2);position:relative}
-.lc .ar::after{content:"";position:absolute;right:0;top:-3px;border:3.5px solid transparent;border-left:5px solid var(--line-3);border-right:0}
-.lc-exp{margin-top:20px;padding:16px 18px;border-radius:var(--r-sm);border:1px solid var(--line);background:rgba(0,0,0,.25);min-height:78px}
-.lc-exp b{display:block;font:600 11px/1.4 var(--mono);letter-spacing:.14em;color:var(--red);margin-bottom:6px}
-.lc-exp p{margin:0;color:var(--fg-2);font-size:14.5px}
-.lc-exp p.ex{margin-top:8px;font:500 12px/1.5 var(--mono);color:var(--muted)}
+.lc{padding:22px}
+.lcg{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;list-style:none;margin:0;padding:0}
+.lcg li{position:relative;border:1px solid var(--line-2);border-radius:12px;padding:12px;background:var(--surface-solid);min-width:0}
+.lcg li:not(:last-child)::after{content:"";position:absolute;right:-9px;top:22px;border:4px solid transparent;border-left:6px solid var(--line-3);border-right:0}
+.lcg b{display:block;font:650 11px/1.2 var(--mono);letter-spacing:.14em;color:var(--fg)}
+.lcg p{margin:6px 0 0;font-size:12.5px;color:var(--fg-2);line-height:1.45}
+.lcg small{display:block;margin-top:8px;font:500 10.5px/1.45 var(--mono);color:var(--muted)}
+.lcg li.act{border-color:color-mix(in srgb,var(--red) 50%,transparent)}
+.lcg li.dem{border-style:dashed}
+.lcnote{margin:16px 0 0;font-size:13px;color:var(--muted)}
+
+/* modes */
+.modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.mode{padding:22px}
+.mode h3{margin:0;font:650 11.5px/1.2 var(--mono);letter-spacing:.16em}
+.mode .sub{margin:6px 0 14px;font-size:13px;color:var(--muted)}
+.mode ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.mode li{display:flex;gap:9px;font-size:13.5px;color:var(--fg-2);line-height:1.45}
+.mode li .ic{margin-top:2px}
+.mode li.y .ic{color:var(--ok)}.mode li.n .ic{color:var(--bad)}
+.mode .big{font:700 26px/1.1 var(--mono);color:var(--fg);letter-spacing:-.02em}
+.mode.live h3{color:var(--ok)}.mode.eval h3{color:var(--warn)}.mode.sim h3{color:var(--blue)}
+.mode.sim{border-color:color-mix(in srgb,var(--blue) 45%,transparent)}
+.here{display:inline-block;margin-left:8px;font:650 9.5px/1 var(--mono);letter-spacing:.14em;color:#fff;background:var(--blue);border-radius:5px;padding:4px 6px;vertical-align:1px}
+.stack{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;color:var(--muted)}
+.stack span{font:500 11.5px/1 var(--mono);color:var(--fg-2);border:1px solid var(--line-2);border-radius:6px;padding:6px 8px;background:var(--surface)}
 
 /* explain */
-details.explain{margin-top:24px}
-details.explain summary{list-style:none;cursor:pointer;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:19px;font-weight:600;letter-spacing:-.01em}
+details.explain{margin-top:72px}
+details.explain summary{list-style:none;cursor:pointer;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:19px;font-weight:650;letter-spacing:-.01em}
 details.explain summary::-webkit-details-marker{display:none}
-details.explain summary i{width:28px;height:28px;border-radius:8px;border:1px solid var(--line-2);display:grid;place-items:center;transition:transform .25s;font-style:normal;color:var(--muted);font-family:var(--mono)}
+details.explain summary i{width:30px;height:30px;border-radius:8px;border:1px solid var(--line-2);display:grid;place-items:center;transition:transform .25s;font-style:normal;color:var(--muted);font-family:var(--mono);flex:none}
 details.explain[open] summary i{transform:rotate(45deg)}
 details.explain .body{padding:0 24px 22px;color:var(--fg-2);font-size:15.5px;max-width:780px}
 details.explain .body p{margin:0 0 12px}
-details.explain .this-run{color:#fff;border-left:2px solid var(--red);padding-left:12px}
+details.explain h3{margin:16px 0 6px;font-size:15.5px;color:var(--fg)}
+details.explain .this-run{color:var(--fg);border-left:2px solid var(--red);padding-left:12px}
 
-footer{padding:56px 0 48px;color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between;border-top:1px solid var(--line);margin-top:72px}
-footer a{color:var(--fg-2)}
+/* activity */
+.act{padding:6px 0}
+.act table{width:100%;border-collapse:collapse;font-size:13px}
+.act th{text-align:left;font:600 10px/1.2 var(--mono);letter-spacing:.14em;color:var(--muted);padding:10px 20px;border-bottom:1px solid var(--line)}
+.act td{padding:11px 20px;border-bottom:1px solid var(--line);font-family:var(--mono);color:var(--fg-2);vertical-align:top}
+.act tr:last-child td{border-bottom:0}
+.act td.p-deterministic{color:var(--red)}.act td.p-llm{color:var(--blue)}
+.act .none{padding:18px 20px;color:var(--muted);margin:0}
 
-/* ---------- responsive ---------- */
+/* footer */
+.takeaway{padding:96px 0 40px;text-align:center}
+.takeaway p.q{font-size:clamp(26px,3.6vw,44px);line-height:1.12;letter-spacing:-.035em;font-weight:680;margin:0 auto;max-width:900px}
+.takeaway p.a{margin:18px auto 0;font-size:clamp(16px,1.6vw,19px);color:var(--fg-2);max-width:640px}
+.takeaway p.a b{color:var(--blue);font-weight:650}.takeaway p.a strong{color:var(--red);font-weight:650}
+footer.foot{padding:26px 0 44px;color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:10px 28px;justify-content:space-between;border-top:1px solid var(--line)}
+footer.foot a{color:var(--fg-2)}
+
+/* ================================================================ responsive */
 @media (max-width:1060px){
-  .hero{grid-template-columns:1fr;gap:18px;padding-top:48px}
-  .stage{grid-template-columns:1fr}
-  .core-panel{position:relative;top:0}
-  .cost{grid-template-columns:1fr}
-  .dflow{grid-template-columns:1fr;gap:0}
-  .conn{width:1px;height:46px;margin:0 auto;background:linear-gradient(180deg,var(--line-2),rgba(255,53,71,.5),var(--line-2))}
-  .conn i{left:-3px;top:0;animation-name:travely}
-  .conn span{left:14px;top:50%;transform:translateY(-50%);text-align:left;width:160px}
-  .dnode{min-height:0}
-  .lc-row{flex-wrap:wrap;gap:8px}
-  .lc .ar{display:none}
+  .hero{grid-template-columns:1fr;gap:26px}
+  .stage,.results,.care,.dintro{grid-template-columns:1fr}
+  .dgroups{grid-template-columns:1fr}
+  .dh{width:1px;height:26px;justify-self:center;align-self:auto}
+  .dh i{width:100%;height:0}.dh.lit i{height:100%}
+  .cmp{grid-template-columns:1fr}
+  .delta{flex-direction:row;gap:14px;padding:18px}
+  .delta span{margin-top:0}
+  .lcg{grid-template-columns:1fr;gap:12px}
+  .lcg li:not(:last-child)::after{right:auto;left:22px;top:auto;bottom:-11px;border:4px solid transparent;border-top:6px solid var(--line-3);border-bottom:0}
+  .modes{grid-template-columns:1fr}
+}
+@media (max-width:860px){
+  .links,.simtag{display:none}
+  .mmenu{display:block}
+}
+@media (max-width:760px){
+  #core{display:none}
+  .mflow{display:block}
+  .lane{grid-template-columns:1fr;gap:6px}
+  .lane .ar{width:1px;height:12px;justify-self:center}
+  .lane .ar::after{right:auto;left:-3.5px;top:auto;bottom:-1px;border:4px solid transparent;border-top:5px solid var(--line-3);border-bottom:0}
+  .tiles{grid-template-columns:1fr}
 }
 @media (max-width:640px){
   .wrap{padding:0 16px}
-  .links{display:none}
+  .sys span{display:none}
+  .hero{padding-top:24px;gap:18px}
+  /* phones: the explanation and flow come before the status chips */
+  .hero>div:first-child{display:contents}
+  .hero .built{order:1}.hero .status{order:2;margin-top:0}
+  h1{margin:10px 0 12px}
+  .lede{font-size:15.5px}
+  .demobar .wrap{font-size:13px;gap:6px 12px}
+  .chip{padding:7px 10px;font-size:10px}
+  .row2{grid-template-columns:1fr;gap:0}
+  .actions{flex-direction:column}
+  .btn{width:100%}
   .readout{grid-template-columns:1fr 1fr}
   .readout div:nth-child(2){border-right:0}
   .readout div:nth-child(-n+2){border-bottom:1px solid var(--line)}
-  .row2{grid-template-columns:1fr}
-  .distill{padding:28px 18px 22px}
-  .stat b{min-width:96px;font-size:28px}
-  .panel-h{padding:14px 16px}
-  .console .body{padding:16px}
-  .trace ol{padding:16px 14px 6px}
+  .rgrid{grid-template-columns:1fr}
+  .panel-h{padding:13px 16px}
+  .console .body,.resolution .rbody{padding:16px}
+  .trace ol.tl{padding:16px 14px 6px}
+  .built,.care .txt,.lanes,.distill,.cmp .side,.lc,.mode{padding:18px}
+  .tile{padding:16px 18px}.tile b{min-width:92px;font-size:27px}
+  /* activity: each run becomes one labelled, wrapping line */
+  .act thead{display:none}
+  .act table,.act tbody{display:block}
+  .act tr{display:flex;flex-wrap:wrap;gap:4px 14px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .act tr:last-child{border-bottom:0}
+  .act td{display:block;padding:0;border:0;font-size:12.5px}
+  .act td::before{content:attr(data-l) " ";color:var(--dim);font-size:10px;letter-spacing:.1em}
+  section.block{padding-top:56px}
+  .brand .bt{font-size:14px}
 }
-.mnav{display:none;gap:4px;overflow-x:auto;padding:8px 16px;border-bottom:1px solid var(--line);position:relative;z-index:1}
-@media (max-width:640px){
-  .mnav{display:flex}
-  .node text{font-size:15px}
-  .node text.sub{font-size:12.5px}
-  .pf{font-size:13px}
+@media (max-width:360px){
+  .brand .bt{font-size:13px}
+  .mbranch{grid-template-columns:1fr}
+  .sbranch{grid-template-columns:1fr}
+  .sfork{display:none}
 }
-.mnav a{font-size:13px;color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:8px;white-space:nowrap}
-.mnav a[aria-current]{color:#fff;background:var(--panel-2)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-bolt" viewBox="0 0 16 16"><path d="M9.5 1.5 3.5 9h4l-1 5.5L12.5 7h-4z"/></symbol>
+  <symbol id="i-llm" viewBox="0 0 16 16"><circle cx="8" cy="3.5" r="2"/><circle cx="3.5" cy="12" r="2"/><circle cx="12.5" cy="12" r="2"/><path d="M7 5.3 4.5 10.2M9 5.3l2.5 4.9M5.5 12h5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.5 13.5 4v4c0 3.3-2.4 5.6-5.5 6.5C4.9 13.6 2.5 11.3 2.5 8V4z"/><path d="m5.6 8 1.7 1.7L10.6 6.4"/></symbol>
+  <symbol id="i-in" viewBox="0 0 16 16"><path d="M1.5 8h9M7.5 4.5 11 8l-3.5 3.5M14 2v12"/></symbol>
+  <symbol id="i-ledger" viewBox="0 0 16 16"><path d="M3 3.5h10M3 6.5h10M3 9.5h10M3 12.5h6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8.5 3 3 7-7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-traj" viewBox="0 0 16 16"><path d="M2 12.5c3-1 3.5-7 6-7s3 4 6 3"/><circle cx="2" cy="12.5" r="1"/><circle cx="14" cy="8.5" r="1"/></symbol>
+  <symbol id="i-funnel" viewBox="0 0 16 16"><path d="M2 2.5h12L9.5 8v5l-3-1.5V8z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></symbol>
+  <symbol id="i-pay" viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13M10 10h2"/></symbol>
+</svg>
+
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="/playground" aria-label="Self-Distilling Agent">
-      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 1.8 22.7 7.4v11.2L13 24.2 3.3 18.6V7.4Z" fill="none" stroke="#ff3547" stroke-width="1.4"/><path d="M13 7.5 17.8 10.3v5.4L13 18.5 8.2 15.7v-5.4Z" fill="#ff3547" opacity=".22" stroke="#fff" stroke-width="1"/><circle cx="13" cy="13" r="1.9" fill="#fff"/></svg>
-      Self-Distilling Agent
+    <a class="brand" href="/playground" aria-label="Self-Distilling Agent: playground">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 1.8 22.7 7.4v11.2L13 24.2 3.3 18.6V7.4Z" fill="none" stroke="#ff3547" stroke-width="1.4"/><path d="M13 7.5 17.8 10.3v5.4L13 18.5 8.2 15.7v-5.4Z" fill="#4d8dff" opacity=".25" stroke="currentColor" stroke-width="1"/><circle cx="13" cy="13" r="1.9" fill="currentColor"/></svg>
+      <span class="bt">Self-Distilling Agent</span>
     </a>
     <nav class="links" aria-label="Primary">
       <a href="/">Dashboard</a>
-      <a href="/playground" aria-current="page">Agent Playground</a>
+      <a href="/playground" aria-current="page">Playground</a>
       <a href="/#evaluation">Evaluation</a>
       <a href="/#rules">Rules</a>
     </nav>
-    <div class="live" id="live" title="Backend connection"><span id="liveTxt">CONNECTING</span><i></i></div>
+    <div class="nav-r">
+      <span class="sys" id="sys" role="status"><i></i><span id="sysTxt">CONNECTING</span></span>
+      <span class="simtag">SIMULATION</span>
+      <button class="iconbtn" id="theme" type="button" aria-label="Toggle light or dark theme">
+        <svg class="ic i-moon" viewBox="0 0 16 16"><path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a6 6 0 1 0 7 7z"/></svg>
+        <svg class="ic i-sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M13 3l-1 1M4 12l-1 1"/></svg>
+      </button>
+      <details class="mmenu">
+        <summary class="iconbtn" aria-label="Menu"><svg class="ic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12"/></svg></summary>
+        <nav class="sheet" aria-label="Primary (mobile)">
+          <a href="/">Dashboard</a><a href="/playground" aria-current="page">Playground</a><a href="/#evaluation">Evaluation</a><a href="/#rules">Rules</a>
+        </nav>
+      </details>
+    </div>
   </div>
 </header>
-<nav class="mnav" aria-label="Primary (mobile)">
-  <a href="/">Dashboard</a><a href="/playground" aria-current="page">Playground</a><a href="/#evaluation">Evaluation</a><a href="/#rules">Rules</a>
-</nav>
+
+<div class="demobar" role="note">
+  <div class="wrap">
+    <b>DEMO / TEST ENVIRONMENT</b>
+    <span>This playground demonstrates the payment-recovery agent using test/simulation data. No real customer money is moved or recovered through this demo.</span>
+    <a href="#modes">Simulation vs live vs offline →</a>
+  </div>
+</div>
 
 <main class="wrap">
 
-  <section class="hero">
+  <!-- LAYER 1: what is it, what does it do -->
+  <section class="hero" aria-labelledby="h1">
     <div>
-      <span class="sim-badge">SIMULATION / TEST MODE</span>
-      <h1>Watch the agent<br><em>decide.</em></h1>
-    </div>
-    <div>
-      <p class="lede">Every failed payment enters the decision core. Known behavior runs on rules. Ambiguous behavior calls the LLM.
-        <span>Successful decisions can become rules that replace future LLM calls.</span></p>
-      <div class="status" id="status">
-        <span class="chip" id="stSys"><i></i>SYSTEM ONLINE</span>
-        <span class="chip" id="stHook"><i></i>WEBHOOK READY</span>
+      <span class="eyebrow">Self-distilling payment recovery agent</span>
+      <h1 id="h1">An LLM that writes the rules that <em>replace it.</em></h1>
+      <p class="lede">Autonomous payment recovery that uses the LLM for ambiguous failures and validated rules for repeated cases, so future matching failures can bypass the LLM.</p>
+      <div class="status">
+        <span class="chip" id="stHook"><i></i>PAYMENT WEBHOOK READY</span>
+        <span class="chip" id="stRules"><i></i>RULE ENGINE ONLINE</span>
         <span class="chip" id="stGuard"><i></i>GUARDRAILS ACTIVE</span>
       </div>
     </div>
+
+    <div class="panel built" aria-labelledby="builtH">
+      <h2 id="builtH">WHAT DID WE BUILD?</h2>
+      <p>An agent that recovers <strong>failed payments</strong>. Calling an LLM for every failure, even ones it has handled before, adds unnecessary cost. So it first checks whether it already knows the case.</p>
+      <div class="sflow" aria-label="How a failed payment is handled">
+        <div class="sbox"><svg class="ic"><use href="#i-pay"/></svg>Failed payment</div>
+        <div class="sarrow"></div>
+        <div class="sbox">Do we already know this case?<small>checks the validated rules</small></div>
+        <svg class="sfork" viewBox="0 0 440 22" preserveAspectRatio="none" aria-hidden="true"><path d="M220 0v6M110 22V11h220v11" fill="none" stroke="currentColor"/></svg>
+        <div class="sbranch">
+          <div class="sbox red"><em>KNOWN CASE</em><svg class="ic"><use href="#i-bolt"/></svg>Rule handles it<small>0 LLM calls</small></div>
+          <div class="sbox blue"><em>NEW / AMBIGUOUS</em><svg class="ic"><use href="#i-llm"/></svg>LLM reasons<small>calls the LLM</small></div>
+        </div>
+        <svg class="sfork" viewBox="0 0 440 22" preserveAspectRatio="none" aria-hidden="true"><path d="M110 0v11h220V0M220 11v11" fill="none" stroke="currentColor"/></svg>
+        <div class="sbox"><svg class="ic"><use href="#i-shield"/></svg>Guardrails check every action</div>
+        <div class="sarrow"></div>
+        <div class="sbox">Outcome</div>
+      </div>
+      <p class="over"><b>Over time:</b> successful LLM behavior is validated and becomes a rule, so future matching failures skip the LLM.<span id="overProof"></span></p>
+    </div>
   </section>
 
+  <!-- LAYER 2: see it work on the real pipeline -->
   <section class="stage" aria-label="Decision core and simulation console">
     <div class="panel core-panel" id="corePanel">
       <div class="panel-h">
         <span class="eyebrow">Decision Core</span>
-        <span class="tag mono" id="llmTag">LLM · —</span>
+        <span class="pathind" id="pathInd">AWAITING RUN</span>
       </div>
+      <div class="core-cap"><span>Every failed payment enters the decision core.</span><span class="tag mono" id="llmTag">LLM · —</span></div>
       <svg id="core" viewBox="0 0 640 620" role="img" aria-label="Decision core: webhook, rule engine, LLM, guardrails and ledger around the AI decision core"></svg>
+      <ol class="mflow" aria-label="Decision flow">
+        <li class="mnode" data-m="webhook"><span class="mi"><svg class="ic"><use href="#i-in"/></svg></span><div><b>PAYMENT FAILED</b><small id="mSubIn">arrives through a signed webhook</small></div></li>
+        <li class="mconn" data-c="rules" aria-hidden="true"></li>
+        <li class="mnode" data-m="rules"><span class="mi"><svg class="ic"><use href="#i-bolt"/></svg></span><div><b>RULE ENGINE</b><small id="mSubRules">checks for a validated rule</small></div></li>
+        <li class="mconn" data-c="branch" aria-hidden="true"></li>
+        <li class="mbranch">
+          <div class="mnode m-rule" data-m="rule"><span class="mi"><svg class="ic"><use href="#i-bolt"/></svg></span><div><b>RULE PATH</b><small>rule matched · 0 LLM calls</small></div></div>
+          <div class="mnode m-llm" data-m="llm"><span class="mi"><svg class="ic"><use href="#i-llm"/></svg></span><div><b>LLM</b><small id="mSubLlm">only when no rule matches</small></div></div>
+        </li>
+        <li class="mconn" data-c="guard" aria-hidden="true"></li>
+        <li class="mnode" data-m="guard"><span class="mi"><svg class="ic"><use href="#i-shield"/></svg></span><div><b>GUARDRAILS</b><small id="mSubGuard">every action is checked</small></div></li>
+        <li class="mconn" data-c="ledger" aria-hidden="true"></li>
+        <li class="mnode mout" data-m="ledger"><span class="mi"><svg class="ic"><use href="#i-ledger"/></svg></span><div><b>OUTCOME · LEDGER</b><small id="mSubOut">recorded in the ledger</small></div></li>
+      </ol>
       <div class="readout" aria-live="polite">
         <div><b>PATH</b><span id="roPath">—</span></div>
         <div><b>LLM CALLS</b><span id="roLlm">—</span></div>
@@ -373,131 +635,232 @@ footer a{color:var(--fg-2)}
       </div>
     </div>
 
-    <div>
-      <form class="panel console" id="form" novalidate>
-        <div class="panel-h">
-          <span class="eyebrow">Run a payment scenario</span>
-          <span class="tag">POST /playground/api/run</span>
-        </div>
-        <div class="body">
-          <label class="field"><span>PAYMENT ID <em>pay_demo_…</em></span>
-            <div class="input"><input id="fPay" name="payment_id" autocomplete="off" spellcheck="false" required></div></label>
-          <div class="row2">
-            <label class="field"><span>AMOUNT</span>
-              <div class="input"><span class="pre">₹</span><input id="fAmt" name="amount_inr" type="number" min="1" max="1000000" step="1" value="1000" inputmode="decimal" required></div></label>
-            <label class="field"><span>CUSTOMER ID <em>optional</em></span>
-              <div class="input"><input id="fCust" name="customer_id" placeholder="cust_demo_…" autocomplete="off" spellcheck="false"></div></label>
-          </div>
+    <form class="panel console" id="form" novalidate aria-labelledby="consoleH">
+      <div class="panel-h">
+        <span class="eyebrow" id="consoleH">Run a payment scenario</span>
+        <span class="tag" style="color:var(--warn)">SIMULATION / TEST MODE</span>
+      </div>
+      <div class="body">
+        <label class="field"><span>PAYMENT ID <em>pay_demo_…</em></span>
+          <div class="input"><input id="fPay" name="payment_id" autocomplete="off" spellcheck="false" required></div></label>
+        <p class="hint">A fresh demo id per run keeps runs independent. Reusing one shows the executor's idempotency (DUPLICATE).</p>
+        <div class="row2">
+          <label class="field"><span>AMOUNT</span>
+            <div class="input"><span class="pre">₹</span><input id="fAmt" name="amount_inr" type="number" min="1" max="1000000" step="1" value="1000" inputmode="decimal" required></div></label>
           <label class="field"><span>FAILURE REASON</span>
             <div class="input"><select id="fReason" name="failure_reason">
               <option value="insufficient_funds">insufficient_funds</option>
-              <option value="card_declined">card_declined</option>
-              <option value="expired_card">expired_card</option>
-              <option value="authentication_required">authentication_required</option>
-              <option value="processing_error">processing_error</option>
-              <option value="invalid_details">invalid_details</option>
-              <option value="risk_blocked">risk_blocked</option>
-              <option value="unknown">unknown</option>
             </select></div></label>
-          <div class="actions">
-            <button class="btn primary" id="run" type="submit"><svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true"><path d="M1 1l9 5-9 5z" fill="currentColor"/></svg>RUN RECOVERY DECISION</button>
-            <button class="btn" id="reset" type="button" aria-label="Reset">↻ RESET</button>
-          </div>
-          <p class="err" id="err" role="alert"></p>
-          <div class="disclaim"><b>TEST MODE</b><span>Runs the real pipeline against an in-memory demo provider. No real customer money was moved or recovered by this demo.</span></div>
         </div>
-        <div class="store">
-          <span class="eyebrow">Rules in this instance's store</span>
-          <ul id="storeRules"><li class="muted"><span>loading…</span></li></ul>
+        <label class="field"><span>CUSTOMER ID <em>optional · cust_demo_…</em></span>
+          <div class="input"><input id="fCust" name="customer_id" placeholder="cust_demo_…" autocomplete="off" spellcheck="false"></div></label>
+        <div class="actions">
+          <button class="btn primary" id="run" type="submit"><svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true"><path d="M1 1l9 5-9 5z" fill="currentColor"/></svg>RUN RECOVERY</button>
+          <button class="btn" id="reset" type="button">↻ RESET</button>
         </div>
-      </form>
+        <p class="err" id="err" role="alert"></p>
+        <div class="notice"><b>TEST MODE</b><span>Demo IDs only. No real customer money is moved.</span></div>
+        <p class="apinote">Calls the real pipeline: POST /playground/api/run</p>
+      </div>
+      <div class="store">
+        <span class="eyebrow">Known cases · active rules in this instance</span>
+        <p>A case these rules match skips the LLM. Anything else goes to the agent.</p>
+        <ul id="storeRules"><li class="muted"><span>loading…</span></li></ul>
+      </div>
+    </form>
+  </section>
 
-      <div class="panel trace" id="trace">
-        <div class="panel-h"><span class="eyebrow">Live execution trace</span><span class="tag" id="traceTag">idle</span></div>
-        <p class="empty" id="traceEmpty">Run a scenario. Each stage below is filled from the backend's actual result: the ledger row, the trajectory and the guarded executor's audit log.</p>
-        <ol id="steps" hidden></ol>
+  <section class="results" aria-label="Execution trace and resolution">
+    <div class="panel trace" id="trace">
+      <div class="panel-h"><span class="eyebrow">Execution trace</span><span class="tag" id="traceTag">idle</span></div>
+      <p class="empty" id="traceEmpty">Run a scenario. Each stage is filled from the backend's actual result: the ledger row, the trajectory and the guarded executor's audit log.</p>
+      <ol class="tl" id="steps" hidden></ol>
+    </div>
+
+    <div class="panel resolution" id="resolution" aria-live="polite">
+      <div class="panel-h"><span class="eyebrow">Resolution</span><span class="tag" id="resTag">awaiting run</span></div>
+      <p class="empty" id="resEmpty">The resolution appears here once the backend has answered.</p>
+      <div class="rbody" id="resBody" hidden>
+        <p class="rlabel">OVERALL OUTCOME</p>
+        <p class="rstatus" id="rStatus"></p>
+        <p class="rsub" id="rSub"></p>
+        <dl class="rgrid">
+          <div class="wide"><dt>PATH</dt><dd id="rPath"></dd></div>
+          <div><dt>DECISION</dt><dd id="rDecision"></dd></div>
+          <div><dt>LLM CALLS</dt><dd id="rLlm"></dd></div>
+          <div><dt>EXECUTOR RESULT</dt><dd id="rExec"></dd></div>
+          <div><dt>RULE</dt><dd id="rRule"></dd></div>
+        </dl>
+        <p class="rnote" id="rNote" hidden></p>
+        <div class="why" id="rWhy"><b>WHY?</b><p id="rWhyTxt"></p><p id="rValue"></p></div>
+        <div class="rfoot"><span class="pill sim">SIMULATION</span><span>recovered <b id="rRec">—</b></span><span>money moved <b id="rMoney">—</b></span><span id="rLedger"></span></div>
       </div>
     </div>
   </section>
 
+  <!-- LAYER 2/3: why it matters -->
+  <section class="block" id="why" aria-labelledby="whyH">
+    <div class="sec-h">
+      <div><span class="eyebrow">Why should I care?</span><h2 class="big" id="whyH">Not every failure<br>needs <em>reasoning.</em></h2></div>
+    </div>
+    <div class="care">
+      <div class="panel txt">
+        <p>Payment failures are not all equally difficult. <strong>Some need reasoning. Others are situations the system has already seen.</strong></p>
+        <p>LLMs are useful for ambiguous decisions, but calling one again and again for the same known situation adds latency, cost and variability.</p>
+        <p>This agent uses the LLM where reasoning helps and deterministic rules where the behavior has already been validated, while keeping the LLM available for cases that still need it.</p>
+      </div>
+      <div class="panel lanes" aria-label="New cases go to the LLM; known cases go to the rule engine">
+        <div class="lanecap">NEW OR AMBIGUOUS CASE</div>
+        <div class="lane new">
+          <div class="lb k">New / ambiguous failure<small>no validated rule yet</small></div><span class="ar"></span>
+          <div class="lb"><svg class="ic" style="color:var(--blue)"><use href="#i-llm"/></svg> LLM reasons<small>then guardrails</small></div><span class="ar"></span>
+          <div class="lb res"><b>LLM</b><small>behavior is recorded</small></div>
+        </div>
+        <div class="lanecap">KNOWN, VALIDATED CASE</div>
+        <div class="lane known">
+          <div class="lb k">Known failure<small>matches an active rule</small></div><span class="ar"></span>
+          <div class="lb"><svg class="ic" style="color:var(--red)"><use href="#i-bolt"/></svg> Rule engine<small>then guardrails</small></div><span class="ar"></span>
+          <div class="lb res"><b>0</b><small>LLM calls</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAYER 3: self-distillation -->
   <section class="block" id="distillation" aria-labelledby="dH">
     <div class="sec-h">
-      <div><span class="eyebrow">Self-distillation</span><h2 id="dH">Teach once.<br><em>Execute deterministically.</em></h2></div>
-      <p>Validated agent behavior can become a deterministic rule, reducing repeated LLM calls over time.</p>
+      <div><span class="eyebrow">What makes this different?</span><h2 class="big" id="dH">Teach once.<br><em>Execute deterministically.</em></h2></div>
     </div>
-    <div class="panel distill">
-      <div class="dflow">
-        <div class="dnode">
-          <svg width="28" height="28" viewBox="-14 -14 28 28" aria-hidden="true"><g fill="none" stroke="#c8c8ff" stroke-width="1.4"><circle cx="0" cy="-7" r="3"/><circle cx="-7" cy="6" r="3"/><circle cx="7" cy="6" r="3"/><path d="M-1.5-4.5-5.5 3.5M1.5-4.5 5.5 3.5M-4 6H4"/></g></svg>
-          <span class="k">01 · LLM</span><span class="t">Handles the ambiguous case</span>
-          <span class="d">Each decision is saved as a trajectory: situation, tool calls, outcome.</span>
+    <div class="dintro">
+      <p>Most AI agents call an LLM whenever they need to decide. This project goes the other way: use the LLM for ambiguity, validate what worked, turn it into a deterministic rule, and let that rule handle future matching cases.</p>
+      <p class="nf">This is not fine-tuning: the model is never retrained. "Self-distilling" means validated agent behavior becomes an executable rule, stored as data, that can be promoted, monitored and demoted.</p>
+    </div>
+    <div class="panel distill" id="dPanel">
+      <div class="dgroups">
+        <div class="dgroup"><h3>1 · LEARN</h3>
+          <div class="dstep llm"><b><svg class="ic"><use href="#i-llm"/></svg>LLM</b><small>Handles a new or ambiguous failure.</small></div>
+          <div class="dv"></div>
+          <div class="dstep"><b><svg class="ic"><use href="#i-traj"/></svg>TRAJECTORY</b><small>The situation, tool calls and outcome are saved.</small></div>
         </div>
-        <div class="conn"><i></i><span>successful behavior</span></div>
-        <div class="dnode">
-          <svg width="28" height="28" viewBox="-14 -14 28 28" aria-hidden="true"><g fill="none" stroke="#fff" stroke-width="1.4"><path d="M-10-8H10L3 1V9L-3 6V1Z"/></g></svg>
-          <span class="k">02 · DISTILLATION</span><span class="t">Cluster → propose → shadow</span>
-          <span class="d" id="dDistill">Consistent clusters become candidate rules in a closed grammar, then prove themselves in shadow.</span>
+        <div class="dh"><i></i></div>
+        <div class="dgroup"><h3>2 · DISTILL</h3>
+          <div class="dstep"><b><svg class="ic"><use href="#i-funnel"/></svg>DISTILLATION</b><small id="dsDistill">Consistent trajectories are clustered and proposed as a rule.</small></div>
+          <div class="dv"></div>
+          <div class="dstep"><b><svg class="ic"><use href="#i-eye"/></svg>SHADOW RULE</b><small>Observes real traffic. Cannot execute.</small></div>
+          <div class="dv"></div>
+          <div class="dstep"><b><svg class="ic"><use href="#i-up"/></svg>PROMOTED</b><small id="dsPromote">Passes a statistical gate on agreement and recovery.</small></div>
         </div>
-        <div class="conn"><i></i><span>promoted</span></div>
-        <div class="dnode rule">
-          <span class="k" style="color:var(--red)">03 · LEARNED RULE</span><span class="t">Deterministic policy</span>
-          <code id="dRule">—</code>
-          <span class="d" id="dRuleStats">—</span>
-        </div>
-        <div class="conn"><i></i><span>future matching payments</span></div>
-        <div class="dnode nollm">
-          <svg width="28" height="28" viewBox="-14 -14 28 28" aria-hidden="true"><path d="M2-11-7 2H0L-2 11 7-2H0Z" fill="none" stroke="#ff3547" stroke-width="1.5" stroke-linejoin="round"/></svg>
-          <span class="k">04 · FUTURE CASES</span><span class="big">0</span><span class="t">LLM calls</span>
-          <span class="d">PolicyRouter matches the rule; the GuardedExecutor still gates the action.</span>
+        <div class="dh"><i></i></div>
+        <div class="dgroup exec"><h3>3 · EXECUTE</h3>
+          <div class="dstep rule"><b><svg class="ic"><use href="#i-bolt"/></svg>ACTIVE RULE</b><code id="dRule">—</code><small id="dRuleStats"></small></div>
+          <div class="dv"></div>
+          <div class="dstep"><b><svg class="ic"><use href="#i-pay"/></svg>FUTURE PAYMENT FAILURE</b><small>A matching case arrives.</small></div>
+          <div class="dv"></div>
+          <div class="dstep rule zero"><b><span class="n">0</span>LLM CALLS</b><small>Rule path → guardrails → outcome.</small></div>
         </div>
       </div>
       <div class="dnote">
         <span class="src" id="dSrc">OFFLINE EVALUATION</span>
-        <span class="run" id="dRun">The live app records trajectories; promotion to a rule happens in the distillation loop, exercised by the offline evaluation.</span>
+        <span class="run" id="dRun">The rule shown is a real one promoted in the offline evaluation. Playground runs are recorded but never distilled automatically: the live app does not promote rules on its own.</span>
       </div>
     </div>
   </section>
 
-  <section class="block" id="cost" aria-labelledby="cH">
+  <!-- LAYER 3: measurable result -->
+  <section class="block" id="evaluation" aria-labelledby="eH">
     <div class="sec-h">
-      <div><span class="eyebrow">LLM traffic</span><h2 id="cH">Fewer calls.<br>Same recovery.</h2></div>
+      <div><span class="eyebrow">Why distill?</span><h2 class="big" id="eH">Fewer LLM calls.<br>Same recovery.</h2></div>
       <span class="src" id="cSrc">OFFLINE EVALUATION · NOT LIVE PRODUCTION METRICS</span>
     </div>
-    <div class="cost">
-      <div class="panel bars">
-        <div class="bar"><div class="lbl"><span>BEFORE DISTILLATION · LLM SHARE</span><b id="bBefore">—</b></div><div class="track-b"><div class="fill" id="fBefore"></div></div></div>
-        <div class="bar"><div class="lbl"><span>AFTER DISTILLATION · LLM SHARE</span><b id="bAfter" style="color:var(--red)">—</b></div><div class="track-b"><div class="fill after" id="fAfter"></div></div></div>
-        <p class="foot" id="bFoot">—</p>
-      </div>
-      <div class="stats">
-        <div class="panel stat"><b class="red" id="sLess">—</b><div><strong>LESS LLM TRAFFIC</strong>relative drop in the share of cases sent to the LLM</div></div>
-        <div class="panel stat"><b id="sCost">—</b><div><strong>MODELLED COST / 1,000</strong><span id="sCostWas">token accounting × configured price, not a bill</span></div></div>
-        <div class="panel stat"><b id="sRec">—</b><div><strong>RECOVERY</strong><span id="sRecCi">—</span></div></div>
-      </div>
+    <div class="cmp">
+      <div class="panel side"><h3>BEFORE · LLM TRAFFIC</h3><div class="v" id="bBefore">—</div><div class="track-b"><div class="fill" id="fBefore"></div></div><p>Share of cases sent to the LLM with only the seed rules.</p><span class="olabel">OFFLINE EVALUATION</span></div>
+      <div class="delta"><b id="sLess">—</b><span>LESS LLM TRAFFIC</span><span class="olabel">OFFLINE EVALUATION</span></div>
+      <div class="panel side after"><h3>AFTER DISTILLATION · LLM TRAFFIC</h3><div class="v" id="bAfter">—</div><div class="track-b"><div class="fill after" id="fAfter"></div></div><p id="bFoot">With distilled rules handling known cases.</p><span class="olabel">OFFLINE EVALUATION</span></div>
+    </div>
+    <div class="tiles">
+      <div class="panel tile"><b id="sCost">—</b><div><strong>MODELLED COST / 1,000</strong><span id="sCostWas">token accounting × configured price, not a bill</span><br><span class="olabel">OFFLINE EVALUATION</span></div></div>
+      <div class="panel tile"><b id="sRec">—</b><div><strong>RECOVERY</strong><span id="sRecCi">—</span><br><span class="olabel">OFFLINE EVALUATION</span></div></div>
+    </div>
+    <p class="plain">In the evaluated setting, validated rules reduced how often the LLM was needed while keeping the measured recovery rate. These are results of a synthetic offline run, not live payment metrics.</p>
+  </section>
+
+  <!-- LAYER 4: technical depth -->
+  <section class="block" id="lifecycle" aria-labelledby="lH">
+    <div class="sec-h">
+      <div><span class="eyebrow">Rule lifecycle</span><h2 class="big" id="lH">Earned, watched,<br>and revocable.</h2></div>
+      <p>Rules are data, not code. A distilled rule must prove itself before it executes, and it loses that right if it stops performing.</p>
+    </div>
+    <div class="panel lc">
+      <ol class="lcg" id="lcg"></ol>
+      <p class="lcnote" id="lcNote"></p>
     </div>
   </section>
 
-  <section class="block" id="lifecycle" aria-labelledby="lH">
+  <section class="block" id="modes" aria-labelledby="mH">
     <div class="sec-h">
-      <div><span class="eyebrow">Rule lifecycle</span><h2 id="lH">Earned, watched,<br>and revocable.</h2></div>
-      <p>Rules are data, not code. They start in shadow, and a rule that stops performing is demoted back to the LLM.</p>
+      <div><span class="eyebrow">What is real here?</span><h2 class="big" id="mH">Live, offline,<br>and simulated.</h2></div>
+      <p>Three different things, kept deliberately separate.</p>
     </div>
-    <div class="panel lc">
-      <div class="lc-row" id="lcRow"></div>
-      <div class="lc-exp" id="lcExp" aria-live="polite"></div>
+    <div class="modes">
+      <div class="panel mode live">
+        <h3>LIVE INTEGRATION</h3>
+        <p class="sub">The deployed app's webhook path. Sandbox keys only.</p>
+        <ul>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Signed payment webhook endpoints <span class="mono" id="mProviders"></span></span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>HMAC signature verification: a bad signature is rejected before anything is stored</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Events persisted, normalised and processed by the same pipeline</span></li>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Every action goes through the guarded executor</span></li>
+          <li class="n"><svg class="ic"><use href="#i-x"/></svg><span>No real payment has been recovered through it</span></li>
+        </ul>
+      </div>
+      <div class="panel mode eval">
+        <h3>OFFLINE EVALUATION</h3>
+        <p class="sub" id="evSub">Synthetic cases, deterministic stub LLM, simulated customers.</p>
+        <ul>
+          <li><span><span class="big" id="evRec">—</span><br>recovery (both arms)</span></li>
+          <li><span><span class="big" id="evShare">—</span><br>LLM share after distillation</span></li>
+          <li><span><span class="big" id="evCost">—</span><br>modelled cost / 1,000 failures</span></li>
+        </ul>
+      </div>
+      <div class="panel mode sim">
+        <h3>PLAYGROUND SIMULATION<span class="here">YOU ARE HERE</span></h3>
+        <p class="sub">A controlled demo on top of the real pipeline.</p>
+        <ul>
+          <li class="y"><svg class="ic"><use href="#i-check"/></svg><span>Real PolicyRouter, agent, guarded executor and ledger</span></li>
+          <li class="n"><svg class="ic"><use href="#i-x"/></svg><span>No webhook or signature check: demo events enter after that step</span></li>
+          <li class="n"><svg class="ic"><use href="#i-x"/></svg><span>No real money: an in-memory demo provider, <span class="mono">pay_demo_</span> ids only</span></li>
+          <li class="n"><svg class="ic"><use href="#i-x"/></svg><span>Runs are not distilled into rules automatically</span></li>
+        </ul>
+      </div>
     </div>
+    <div class="stack"><span class="muted" style="border:0;background:none;padding:0;font-family:var(--sans)">Under the hood:</span>
+      <span>FastAPI</span><span>RecoveryPipeline</span><span>PolicyRouter</span><span>GuardedExecutor</span><span>provider adapters</span><span>trajectory store</span><span>versioned rule store</span><span>offline eval harness</span></div>
   </section>
 
   <details class="panel explain" id="explain">
     <summary>What just happened?<i aria-hidden="true">+</i></summary>
     <div class="body">
-      <p>The system first checked whether it already knew how to handle this failure. If a validated rule existed, it used the rule instead of calling the LLM. If no rule matched, the LLM handled the ambiguous case. Successful behavior can later become a deterministic rule.</p>
-      <p>Either way, the action went through the same safety checks before anything happened, and the result was written to a ledger.</p>
+      <p>First, the system checks whether it already knows how to handle this payment failure. If a validated rule exists, the rule handles it without calling the LLM. If no rule matches, the LLM handles the ambiguous case. Successful behavior can later become a deterministic rule.</p>
+      <h3>Why does this matter?</h3>
+      <p>Repeated LLM reasoning can be replaced by validated deterministic behavior for cases the system has already learned.</p>
       <p class="this-run" id="thisRun" hidden></p>
     </div>
   </details>
 
-  <footer>
+  <section class="block" id="activity" aria-labelledby="aH">
+    <div class="sec-h">
+      <div><span class="eyebrow">Recent activity</span><h2 class="big" id="aH" style="font-size:clamp(26px,3vw,36px)">Playground runs</h2></div>
+      <p>Read from this instance's ledger (provider <span class="mono">demo</span>). Shared by everyone using this instance.</p>
+    </div>
+    <div class="panel act" id="actPanel"><p class="none">Loading…</p></div>
+  </section>
+
+  <section class="takeaway" aria-label="Takeaway">
+    <p class="q">Payment recovery doesn't need an LLM for every decision.</p>
+    <p class="a">Let the <b>model</b> handle ambiguity. Let <strong>validated rules</strong> handle repetition.</p>
+  </section>
+
+  <footer class="foot">
     <span>Simulation / test mode · No real customer money was moved or recovered by this demo.</span>
     <span><a href="/#evaluation">Evaluation</a> is the technical proof · <a href="/">Dashboard</a></span>
   </footer>
@@ -529,6 +892,17 @@ function sv(tag, attrs, ...kids) {
   for (const k of kids) if (k != null) n.append(k instanceof Node ? k : String(k));
   return n;
 }
+const icon = (id) => { const s = sv("svg", {class: "ic", "aria-hidden": "true"}); s.append(sv("use", {href: "#" + id})); return s; };
+
+/* ------------------------------------------------------------------ theme */
+$("#theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const current = root.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  const next = current === "light" ? "dark" : "light";
+  root.dataset.theme = next;
+  try { localStorage.setItem("sda-theme", next); } catch (e) {}
+});
+document.querySelectorAll(".mmenu .sheet a").forEach((a) => a.addEventListener("click", () => a.closest("details").removeAttribute("open")));
 
 /* ------------------------------------------------------------------ core */
 const svg = $("#core");
@@ -579,7 +953,7 @@ svg.append(
 const flows = {};
 for (const [k, d] of Object.entries(PATHS)) {
   svg.append(sv("path", {class: "track", d}));
-  flows[k] = sv("path", {class: "flow", d});
+  flows[k] = sv("path", {class: "flow", d, "data-k": k});
   svg.append(flows[k]);
 }
 // core hexagon
@@ -598,7 +972,7 @@ svg.append(coreG);
 const nodeEls = {}, subEls = {};
 for (const [id, n] of Object.entries(NODES)) {
   const below = n.deg !== 270;
-  const g = sv("g", {class: "node", transform: `translate(${n.p.x.toFixed(1)} ${n.p.y.toFixed(1)})`},
+  const g = sv("g", {class: "node", "data-id": id, transform: `translate(${n.p.x.toFixed(1)} ${n.p.y.toFixed(1)})`},
     sv("circle", {class: "halo", r: 24}),
     sv("circle", {class: "ring", r: 24}),
     sv("path", {class: "ico", d: ICONS[id]}),
@@ -616,6 +990,7 @@ svg.append(sigGlow, sig);
 
 function setNode(id, state) {
   nodeEls[id].setAttribute("class", "node" + (state ? " " + state : ""));
+  if (id !== "webhook") mset(id, state); // mirror onto the mobile flow
 }
 function travel(key, {white = false, ms = 560} = {}) {
   const path = flows[key];
@@ -659,6 +1034,30 @@ function resetCore() {
   svg.classList.remove("core-busy");
   $("#corePanel").classList.remove("busy");
   for (const k of ["roPath", "roLlm", "roExec", "roOut"]) { const s = $("#" + k); s.textContent = "—"; s.className = ""; }
+  // mobile flow + path indicator
+  mset("webhook", ""); mset("rule", "");
+  $("#mSubIn").textContent = "arrives through a signed webhook";
+  $("#mSubOut").replaceChildren("recorded in the ledger");
+  setPathInd(null);
+}
+
+/* ---------------------------------------------------------- mobile flow */
+const mnode = (id) => document.querySelector(`[data-m="${id}"]`);
+function mset(id, state) {
+  const n = mnode(id);
+  if (!n) return;
+  n.classList.remove("active", "done", "skipped", "warn", "bad");
+  if (state) n.classList.add(state);
+  const lit = (x) => { const m = mnode(x); return !!m && (m.classList.contains("active") || m.classList.contains("done") || m.classList.contains("warn") || m.classList.contains("bad")); };
+  const conn = {rules: lit("rules"), branch: lit("rule") || lit("llm"), guard: lit("guard"), ledger: lit("ledger")};
+  for (const [c, on] of Object.entries(conn)) document.querySelector(`[data-c="${c}"]`).classList.toggle("lit", on);
+}
+function setPathInd(r) {
+  const p = $("#pathInd");
+  if (!r) { p.className = "pathind"; p.replaceChildren("AWAITING RUN"); return; }
+  if (r.path === "deterministic") { p.className = "pathind rule"; p.replaceChildren(icon("i-bolt"), "RULE PATH"); }
+  else if (r.path === "llm") { p.className = "pathind llm"; p.replaceChildren(icon("i-llm"), "LLM PATH"); }
+  else { p.className = "pathind " + (r.path === "failed" ? "bad" : "warn"); p.replaceChildren(r.path.replace(/_/g, " ").toUpperCase()); }
 }
 
 /* ------------------------------------------------------------ overview */
@@ -675,34 +1074,42 @@ async function loadOverview() {
     if (!r.ok) throw new Error(r.status);
     OV = await r.json();
   } catch (e) {
-    $("#live").className = "live"; $("#liveTxt").textContent = "OFFLINE";
-    chip("stSys", false, "SYSTEM OFFLINE");
+    $("#sys").className = "sys off"; $("#sysTxt").textContent = "OFFLINE";
     $("#storeRules").replaceChildren(el("li", {class: "muted"}, el("span", {}, "backend unreachable")));
     return;
   }
   const on = OV.system.online;
-  $("#live").className = on ? "live on" : "live"; $("#liveTxt").textContent = on ? "LIVE" : "STARTING";
-  chip("stSys", on, on ? "SYSTEM ONLINE" : "PIPELINE NOT STARTED");
+  $("#sys").className = on ? "sys on" : "sys off"; $("#sysTxt").textContent = on ? "SYSTEM ONLINE" : "STARTING";
   const prov = OV.webhooks.providers;
-  chip("stHook", prov.length > 0, "WEBHOOK READY", prov.join(" · "));
+  chip("stHook", prov.length > 0, "PAYMENT WEBHOOK READY", prov.join(" · "));
+  const active = OV.rules.filter((r) => r.status === "active");
+  chip("stRules", on, "RULE ENGINE ONLINE", `${active.length} active rule${active.length === 1 ? "" : "s"}`);
   const g = OV.guardrails;
   chip("stGuard", g.active, g.active ? "GUARDRAILS ACTIVE" : "GUARDRAILS OFF", "approval ≥ " + inr0.format(g.approval_threshold_inr));
   const offline = OV.llm.backend === "stub";
   $("#llmTag").textContent = `LLM · ${OV.llm.model}${offline ? " (offline stub)" : ""}`;
+  $("#mProviders").textContent = "(" + prov.join(", ") + ")";
 
-  const active = OV.rules.filter((r) => r.status === "active");
   subEls.rules.textContent = `${active.length} active rule${active.length === 1 ? "" : "s"}`;
   subEls.llm.textContent = OV.llm.model;
   subEls.guard.textContent = "approval ≥ " + inr0.format(g.approval_threshold_inr);
   subEls.ledger.textContent = "outcome ledger";
   WEBHOOK_SUB = "signed · " + prov.length + " providers";
   subEls.webhook.textContent = WEBHOOK_SUB;
+  $("#mSubRules").textContent = `checks ${active.length} active rule${active.length === 1 ? "" : "s"}`;
+  $("#mSubLlm").textContent = `${OV.llm.model} · only when no rule matches`;
+  $("#mSubGuard").textContent = "every action checked · approval ≥ " + inr0.format(g.approval_threshold_inr);
+
+  // failure reasons come from the backend's own enum
+  const sel = $("#fReason"), keep = sel.value;
+  sel.replaceChildren(...OV.failure_reasons.map((v) => el("option", {value: v}, v)));
+  sel.value = OV.failure_reasons.includes(keep) ? keep : OV.failure_reasons[0];
 
   const ul = $("#storeRules");
   ul.replaceChildren(...(OV.rules.length ? OV.rules.map((r) =>
     el("li", {class: r.status, title: `${r.rule_key} v${r.version} · ${r.status}`},
       el("i"), el("span", {}, `${r.precondition} → ${r.action}`), el("span", {class: "muted", style: "margin-left:auto"}, r.status)))
-    : [el("li", {class: "muted"}, el("span", {}, "no rules — every case goes to the LLM"))]));
+    : [el("li", {class: "muted"}, el("span", {}, "no rules: every case goes to the LLM"))]));
 
   renderEvaluation();
   renderLifecycle();
@@ -711,37 +1118,37 @@ async function loadOverview() {
 function renderEvaluation() {
   const ev = OV.evaluation;
   if (!ev) {
-    $("#dRule").textContent = "No evaluation snapshot yet (run make demo).";
-    $("#bFoot").textContent = "No evaluation snapshot yet — run make demo.";
+    $("#dRule").textContent = "No evaluation snapshot yet.";
+    $("#bFoot").textContent = "No evaluation snapshot yet.";
     return;
   }
   const b = ev.arms.baseline, d = ev.arms.distilled;
   const src = `OFFLINE EVALUATION · ${ev.n} SYNTHETIC CASES · SEED ${ev.seed}`;
   $("#dSrc").textContent = src;
   $("#cSrc").textContent = src + " · NOT LIVE PRODUCTION METRICS";
-  // learned rule example: first rule promoted in the evaluation run
   const first = ev.promoted[0];
   if (first) {
     const def = ev.rules.find((r) => r.rule_key === first.rule_key);
     $("#dRule").textContent = def ? `IF ${def.precondition}\nTHEN ${def.action}` : first.rule_key;
-    $("#dRule").style.whiteSpace = "pre-wrap";
-    $("#dRuleStats").textContent = `Promoted at case ${first.at_case} · ${first.support} shadow matches · ${pct(first.agreement)} agreement · ${pct(first.recovery)} recovery`;
+    $("#dRuleStats").textContent = `Promoted at case ${first.at_case} after ${first.support} shadow matches · ${pct(first.agreement)} agreement · ${pct(first.recovery)} recovery`;
   }
-  $("#dDistill").textContent = `${ev.promoted.length} rules promoted and ${ev.demoted.length} demoted after concept drift in the evaluation run.`;
+  $("#overProof").textContent = ` In the offline evaluation, LLM traffic fell from ${pct(b.llm_share)} to ${pct(d.llm_share)} with the same measured recovery rate.`;
   $("#bBefore").textContent = pct(b.llm_share);
   $("#bAfter").textContent = pct(d.llm_share);
-  $("#bFoot").textContent = `Share of treated cases routed to the LLM, before vs with distillation. Concept drift injected at case ${ev.drift_index}.`;
-  $("#sLess").textContent = "≈" + Math.round((1 - d.llm_share / b.llm_share) * 100) + "%";
-  $("#sCost").textContent = "$" + d.cost_per_1000_usd.toFixed(2);
+  $("#bFoot").textContent = `With distilled rules. ${ev.promoted.length} rules promoted, ${ev.demoted.length} demoted after concept drift at case ${ev.drift_index}.`;
+  $("#sLess").textContent = "↓" + Math.round((1 - d.llm_share / b.llm_share) * 100) + "%";
+  $("#sCost").textContent = "~$" + d.cost_per_1000_usd.toFixed(2);
   $("#sCostWas").textContent = `was $${b.cost_per_1000_usd.toFixed(2)} · modelled (token accounting × price), not a bill`;
   $("#sRec").textContent = pct(d.recovery);
-  $("#sRecCi").textContent = `with distillation vs ${pct(b.recovery)} without · 95% CI ${pct(d.recovery_ci[0])}–${pct(d.recovery_ci[1])}`;
-  const io = new IntersectionObserver((es) => {
-    if (es.some((e) => e.isIntersecting)) {
-      $("#fBefore").style.width = pct(b.llm_share); $("#fAfter").style.width = pct(d.llm_share); io.disconnect();
-    }
-  }, {threshold: .3});
-  io.observe($("#cost"));
+  $("#sRecCi").textContent = `same as without distillation (${pct(b.recovery)}) · 95% CI ${pct(d.recovery_ci[0])}–${pct(d.recovery_ci[1])}`;
+  $("#evSub").textContent = `${ev.n} synthetic cases, seed ${ev.seed}, deterministic stub LLM, simulated customers.`;
+  $("#evRec").textContent = pct(d.recovery);
+  $("#evShare").textContent = pct(d.llm_share);
+  $("#evCost").textContent = "~$" + d.cost_per_1000_usd.toFixed(2);
+  const show = () => { $("#fBefore").style.width = pct(b.llm_share); $("#fAfter").style.width = pct(d.llm_share); };
+  if (!("IntersectionObserver" in window)) return show();
+  const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { show(); io.disconnect(); } }, {threshold: .25});
+  io.observe($("#evaluation"));
 }
 
 function renderLifecycle() {
@@ -749,41 +1156,66 @@ function renderLifecycle() {
   const count = (s) => OV.rules.filter((r) => r.status === s).length;
   const p0 = (x) => Math.round(x * 100) + "%";
   const promoted = ev && ev.promoted[0], demoted = ev && ev.demoted[0];
+  $("#dsDistill").textContent = `Every ${L.cadence} cases, groups of ≥${L.min_cluster_support} consistent trajectories are proposed as a rule.`;
+  $("#dsPromote").textContent = `Needs ≥${L.promote_min_support} matches, ≥${p0(L.promote_min_agreement)} agreement and a recovery lower bound ≥${p0(L.promote_min_recovery_lb)}.`;
   const STATES = [
-    {k: "LLM TRAJECTORY", small: "every LLM case",
-      text: "Every case the LLM handles is saved as a trajectory: the situation, each tool call, the action taken and the outcome.",
-      ex: "Live: the agent path persists a trajectory on every run."},
-    {k: "PROPOSE", small: `every ${L.cadence} cases`,
-      text: `Trajectories are clustered by situation. A cluster of at least ${L.min_cluster_support} cases whose actions agree ${p0(L.min_cluster_agreement)} of the time is turned into a candidate rule, which must pass the closed rule grammar or it is rejected.`},
-    {k: "SHADOW", small: `live store: ${count("shadow")}`,
-      text: "New rules start in SHADOW. They watch traffic and record whether they agree with the decision and whether it recovered, but they never execute."},
-    {k: "PROMOTE", small: "statistical gate",
-      text: `A shadow rule becomes ACTIVE only with ≥${L.promote_min_support} matches, ≥${p0(L.promote_min_agreement)} agreement (95% lower bound ≥${p0(L.promote_min_agreement_lb)}) and a recovery lower bound ≥${p0(L.promote_min_recovery_lb)}. High-value refund rules are never promoted automatically.`,
-      ex: promoted ? `Evaluation: ${promoted.rule_key} promoted at case ${promoted.at_case}.` : null},
-    {k: "ACTIVE", small: `live store: ${count("active")}`,
-      text: "The PolicyRouter checks ACTIVE rules in priority order. A match takes the rule's action through the GuardedExecutor with zero LLM calls."},
-    {k: "MONITOR", small: `last ${L.demote_window} matches`,
-      text: `Recovery over the last ${L.demote_window} cases each distilled rule handled is tracked while it is active.`},
-    {k: "DEMOTE", small: `live store: ${count("demoted")}`, cls: "demote",
-      text: `If the 95% upper bound of recent recovery falls below ${p0(L.demote_recovery_ub_floor)}, the rule is DEMOTED and those cases go back to the LLM.`,
-      ex: demoted ? `Evaluation: ${demoted.rule_key} demoted at case ${demoted.at_case} (${demoted.recent_recovery} recent recoveries).` : null},
+    {k: "TRAJECTORY", t: "Every LLM decision is saved: situation, tool calls, outcome.", s: "live: saved on every LLM-path run"},
+    {k: "PROPOSE", t: "Consistent behavior is proposed as a rule in a closed grammar.", s: `every ${L.cadence} cases · clusters ≥${L.min_cluster_support}, ≥${p0(L.min_cluster_agreement)} agree`},
+    {k: "SHADOW", t: "Can observe but cannot execute.", s: `records agreement and recovery · live store: ${count("shadow")}`},
+    {k: "PROMOTE", t: "Earns execution by passing a statistical gate.", s: `≥${L.promote_min_support} matches · ≥${p0(L.promote_min_agreement)} agreement (lower bound ≥${p0(L.promote_min_agreement_lb)}) · recovery lower bound ≥${p0(L.promote_min_recovery_lb)}`},
+    {k: "ACTIVE", t: "Handles matching cases without the LLM.", s: `still behind the guarded executor · live store: ${count("active")}`, c: "act"},
+    {k: "MONITOR", t: "Recent recovery is tracked while it is active.", s: `last ${L.demote_window} matched cases`},
+    {k: "DEMOTE", t: "Removed from active execution when performance degrades.", s: `recovery upper bound < ${p0(L.demote_recovery_ub_floor)} · cases return to the LLM · live store: ${count("demoted")}`, c: "dem"},
   ];
-  const row = $("#lcRow"), exp = $("#lcExp");
-  const btns = [];
-  const show = (i) => {
-    btns.forEach((b, j) => b.setAttribute("aria-pressed", String(i === j)));
-    const s = STATES[i];
-    exp.replaceChildren(el("b", {}, s.k), el("p", {}, s.text), s.ex ? el("p", {class: "ex"}, s.ex) : null,
-      i === 0 || i === 1 ? el("p", {class: "ex"}, L.live_auto_distillation ? "" : "Promotion runs in the distillation loop exercised by the offline evaluation; the live app does not auto-promote rules.") : null);
-  };
-  STATES.forEach((s, i) => {
-    const b = el("button", {type: "button", class: s.cls || null, "aria-pressed": "false"}, s.k, el("small", {}, s.small));
-    b.addEventListener("click", () => show(i));
-    btns.push(b);
-    row.append(b);
-    if (i < STATES.length - 1) row.append(el("span", {class: "ar", "aria-hidden": "true"}));
-  });
-  show(0);
+  $("#lcg").replaceChildren(...STATES.map((s) => el("li", {class: s.c || null}, el("b", {}, s.k), el("p", {}, s.t), el("small", {}, s.s))));
+  const notes = ["Hand-written seed rules start ACTIVE; distilled rules start in SHADOW. High-value refund rules are never promoted automatically."];
+  if (promoted) notes.push(`Offline evaluation: ${promoted.rule_key} promoted at case ${promoted.at_case}.`);
+  if (demoted) notes.push(`${demoted.rule_key} demoted at case ${demoted.at_case} (${demoted.recent_recovery} recent recoveries).`);
+  if (!L.live_auto_distillation) notes.push("The live app does not promote rules on its own.");
+  $("#lcNote").textContent = notes.join(" ");
+}
+
+/* ------------------------------------------------------ distillation motion */
+function playDistill() {
+  const steps = [...document.querySelectorAll("#dPanel .dstep")];
+  const hs = [...document.querySelectorAll("#dPanel .dh")];
+  steps.forEach((s) => s.classList.remove("lit")); hs.forEach((h) => h.classList.remove("lit"));
+  if (reduce) { steps.forEach((s) => s.classList.add("lit")); hs.forEach((h) => h.classList.add("lit")); return; }
+  steps.forEach((s, i) => setTimeout(() => {
+    s.classList.add("lit");
+    if (i === 1) hs[0].classList.add("lit");
+    if (i === 4) hs[1].classList.add("lit");
+  }, 260 * i));
+}
+if (reduce || !("IntersectionObserver" in window)) playDistill(); // static, fully lit
+else {
+  let seen = false;
+  new IntersectionObserver((es) => {
+    const vis = es.some((e) => e.isIntersecting);
+    if (vis && !seen) playDistill();
+    seen = vis;
+  }, {threshold: .35}).observe($("#dPanel"));
+}
+
+/* ------------------------------------------------------------- activity */
+async function loadActivity() {
+  const box = $("#actPanel");
+  let data;
+  try {
+    const r = await fetch("/playground/api/activity?limit=8", {headers: {accept: "application/json"}});
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+  } catch (e) { box.replaceChildren(el("p", {class: "none"}, "Activity unavailable.")); return; }
+  if (!data.runs.length) { box.replaceChildren(el("p", {class: "none"}, "No demo runs yet.")); return; }
+  const fmt = new Intl.DateTimeFormat(undefined, {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+  const head = el("tr", {}, ...["TIME", "FAILURE REASON", "PATH", "LLM CALLS", "OUTCOME"].map((h) => el("th", {scope: "col"}, h)));
+  const rows = data.runs.map((r) => el("tr", {},
+    el("td", {title: r.recorded_at, "data-l": "TIME"}, fmt.format(new Date(r.recorded_at))),
+    el("td", {"data-l": "REASON"}, r.failure_reason || "—"),
+    el("td", {class: "p-" + r.path, "data-l": "PATH"}, r.path === "deterministic" ? "rule" : r.path),
+    el("td", {"data-l": "LLM CALLS"}, String(r.llm_calls)),
+    el("td", {"data-l": "OUTCOME"}, r.outcome)));
+  box.replaceChildren(el("table", {}, el("thead", {}, head), el("tbody", {}, ...rows)));
 }
 
 /* --------------------------------------------------------------- trace */
@@ -817,6 +1249,7 @@ const EXEC = {
 };
 function outcomeText(r) {
   const o = r.outcome, a = r.action;
+  if (o === "resolved" && r.executor.status === "duplicate") return "Resolved without a new side effect: the executor returned the stored result of the earlier action for this payment.";
   if (o === "resolved" && a === "send_payment_link") return "A new payment link was created in the in-memory demo provider. A payment is only recovered if the customer pays it, and nobody pays in a simulation.";
   if (o === "resolved" && a === "refund") return "Refund executed against the in-memory demo provider. No money moved.";
   if (o === "resolved") return "The action completed in the demo provider.";
@@ -829,6 +1262,58 @@ function outcomeText(r) {
   return "The agent did not reach a resolution (" + o + ").";
 }
 const outClass = (o) => (o === "resolved" || o === "escalated") ? "ok" : (o === "failed" || o === "rejected") ? "bad" : (o === "pending_approval" || o === "duplicate") ? "warn" : "";
+const ACTIONS = {send_payment_link: "Send a new payment link", escalate_to_human: "Hand to a human", refund: "Refund the payment", wait_and_retry: "Wait and retry", no_action: "No action"};
+
+/* ---------------------------------------------------------- resolution */
+function resetResolution() {
+  $("#resBody").hidden = true; $("#resEmpty").hidden = false;
+  $("#resEmpty").textContent = "The resolution appears here once the backend has answered.";
+  $("#resTag").textContent = "awaiting run";
+  $("#resolution").classList.remove("reveal");
+}
+const put = (node, ...kids) => node.replaceChildren(...kids.filter((k) => k != null && k !== ""));
+function renderResolution(r) {
+  const oc = outClass(r.outcome);
+  $("#rStatus").textContent = r.outcome.replace(/_/g, " ").toUpperCase();
+  $("#rStatus").className = "rstatus " + (oc || "neutral");
+  $("#rSub").textContent = outcomeText(r);
+  const rp = $("#rPath");
+  if (r.path === "deterministic") rp.replaceChildren(el("span", {class: "rpath rule"}, icon("i-bolt"), "DETERMINISTIC RULE"), el("small", {}, "a validated rule decided"));
+  else if (r.path === "llm") rp.replaceChildren(el("span", {class: "rpath llm"}, icon("i-llm"), "LLM AGENT"), el("small", {}, "the agent reasoned about this case"));
+  else rp.replaceChildren(r.path.replace(/_/g, " ").toUpperCase(), el("small", {}, "no routing decision was taken"));
+  put($("#rDecision"), r.action ? (ACTIONS[r.action] || r.action) : "No action", r.action ? el("small", {}, r.action) : null);
+  const llmNote = r.path === "llm" ? `${r.llm.model || "LLM"} · ${r.llm.prompt_tokens + r.llm.completion_tokens} tokens · $${r.llm.modelled_cost_usd.toFixed(6)} modelled`
+    : r.path === "deterministic" ? "no LLM needed" : null;
+  put($("#rLlm"), String(r.llm.calls), llmNote ? el("small", {}, llmNote) : null);
+  const st = r.executor.status;
+  const execNote = st ? (EXEC[st] ? EXEC[st][0] : null) : (r.outcome === "no_effect" ? "nothing to execute" : "nothing reached the executor");
+  put($("#rExec"), st ? st.toUpperCase() : "not invoked", execNote ? el("small", {}, execNote) : null);
+  const replay = st === "duplicate" && r.outcome !== "duplicate";
+  $("#rNote").hidden = !replay;
+  $("#rNote").textContent = replay ? `An idempotent replay was detected. The agent treats the replay as safely ${r.outcome} while the executor records it as "duplicate". No new side effect happened.` : "";
+  put($("#rRule"), r.rule ? `${r.rule.key} v${r.rule.version}` : "—", !r.rule && r.path === "llm" ? el("small", {}, "no active rule matched") : null);
+  const why = $("#rWhy");
+  why.className = "why" + (r.path === "llm" ? " llm" : "");
+  if (r.path === "deterministic") {
+    $("#rWhyTxt").textContent = "This behavior has already been validated as a rule, so the LLM was not required.";
+    $("#rValue").textContent = "Known case → deterministic → no repeated LLM reasoning.";
+  } else if (r.path === "llm") {
+    $("#rWhyTxt").textContent = "No validated rule matched this case, so the agent handled the ambiguity.";
+    $("#rValue").textContent = `New or ambiguous case → agent reasoning. Its trajectory (#${r.trajectory ? r.trajectory.id : "—"}) is the kind of record that can teach the system, but playground runs are not distilled automatically.`;
+  } else if (r.path === "duplicate_delivery") {
+    $("#rWhyTxt").textContent = "This event had already been processed, so it was recorded and not acted on again.";
+    $("#rValue").textContent = "";
+  } else {
+    $("#rWhyTxt").textContent = "Processing failed before a decision could be made. The failure was recorded in the ledger.";
+    $("#rValue").textContent = r.error || "";
+  }
+  $("#rRec").textContent = r.amount_recovered_inr == null ? "not tracked" : inr.format(r.amount_recovered_inr);
+  $("#rMoney").textContent = r.money_moved ? "yes" : "no";
+  $("#rLedger").textContent = `ledger #${r.ledger_id}`;
+  $("#resTag").textContent = "ledger #" + r.ledger_id;
+  $("#resEmpty").hidden = true; $("#resBody").hidden = false;
+  const box = $("#resolution"); box.classList.remove("reveal"); void box.offsetWidth; box.classList.add("reveal");
+}
 
 /* ----------------------------------------------------------------- run */
 const form = $("#form"), btn = $("#run"), errEl = $("#err");
@@ -852,6 +1337,7 @@ function apiError(status, body) {
   if (body && typeof body.detail === "string") return `${status} · ${body.detail}`;
   return `request failed (${status})`;
 }
+const mobile = matchMedia("(max-width: 760px)");
 
 let running = false;
 form.addEventListener("submit", async (ev) => {
@@ -859,9 +1345,11 @@ form.addEventListener("submit", async (ev) => {
   if (running) return;
   running = true; btn.disabled = true; errEl.textContent = "";
   const req = payload();
-  resetCore(); buildTrace();
+  resetCore(); buildTrace(); resetResolution();
   $("#traceTag").textContent = "running";
+  $("#resTag").textContent = "running";
   $("#thisRun").hidden = true;
+  if (mobile.matches) $("#corePanel").scrollIntoView({behavior: reduce ? "auto" : "smooth", block: "start"});
 
   const call = fetch("/playground/api/run", {
     method: "POST", headers: {"content-type": "application/json", accept: "application/json"}, body: JSON.stringify(req),
@@ -873,15 +1361,16 @@ form.addEventListener("submit", async (ev) => {
     $("#corePanel").classList.add("busy"); svg.classList.add("core-busy");
     // Playground events are injected after the webhook boundary: no signature check runs.
     pf.classList.add("on"); setNode("webhook", "skipped"); subEls.webhook.textContent = "not used · demo run";
+    mset("webhook", "done"); $("#mSubIn").textContent = "demo event · webhook and signature check not used";
     coreSt.textContent = "INTAKE";
     fill(0, "", main("Payment failed"), meta(el("b", {}, Number.isFinite(req.amount_inr) ? inr.format(req.amount_inr) : "—"), " · ", req.failure_reason),
-      meta(el("span", {class: "shimmer"}, "injecting synthetic event…")));
+      meta(el("span", {class: "shimmer"}, "submitting demo event…")));
     await travel("intake");
     settle("intake");
 
     // 02 — lookup (request is in flight)
     coreSt.textContent = "ROUTING";
-    fill(1, "", main(el("span", {class: "shimmer"}, "Searching validated behavior…")));
+    fill(1, "", main(el("span", {class: "shimmer"}, "Waiting for the rule lookup…")));
     setNode("rules", "active");
     await travel("lookup");
     settle("lookup");
@@ -890,8 +1379,10 @@ form.addEventListener("submit", async (ev) => {
     if (!res.ok) {
       const msg = res.status === 0 ? "Backend unreachable." : apiError(res.status, res.body);
       errEl.textContent = msg;
+      fill(0, "bad", main("Not submitted"), meta("The request was refused, so no event was recorded."));
       fill(1, "bad", main("Request rejected before routing"), meta(msg));
       setNode("rules", "bad"); coreSt.textContent = "ERROR"; $("#traceTag").textContent = "error";
+      $("#resEmpty").textContent = "Not processed: " + msg; $("#resTag").textContent = "error";
       return;
     }
     const r = res.body;
@@ -900,6 +1391,7 @@ form.addEventListener("submit", async (ev) => {
       meta(el("b", {}, inr.format(e.amount_inr)), " · ", e.failure_reason || "unknown"),
       meta(`${e.event_id} · provider ${r.provider} · injected after the webhook boundary`),
       el("span", {class: "pill sim"}, "SIMULATION"));
+    setPathInd(r);
 
     // 02 / 03 — decision
     $("#roPath").textContent = r.path.toUpperCase(); $("#roLlm").textContent = String(r.llm.calls);
@@ -909,22 +1401,23 @@ form.addEventListener("submit", async (ev) => {
       setNode("rules", "done");
       fill(1, "", main("Matched an ACTIVE rule"), meta(el("b", {}, r.rule.key), ` v${r.rule.version}`));
       await sleep(200);
-      fill(2, "", el("span", {class: "pill det"}, "⚡ DETERMINISTIC PATH"),
+      fill(2, "", el("span", {class: "pill det"}, icon("i-bolt"), "DETERMINISTIC PATH"),
         main("Matched rule: " + r.rule.key), kv([["action", r.action || "none"], ["LLM CALLS", "0", "red"]]));
-      setNode("llm", "skipped");
+      setNode("llm", "skipped"); mset("rule", "active");
       await travel("det", {white: true, ms: 620});
-      settle("det");
+      settle("det"); mset("rule", "done");
     } else if (r.path === "llm") {
       coreSt.textContent = "ESCALATED";
-      setNode("rules", "done");
+      $("#roPath").className = "blue";
+      setNode("rules", "done"); mset("rule", "skipped");
       fill(1, "", main("No ACTIVE rule matched"), meta("escalating to the agent"));
       await sleep(200);
       setNode("llm", "active");
       await travel("toLlm");
       settle("toLlm");
       const steps = r.trajectory ? r.trajectory.steps : [];
-      fill(2, "", el("span", {class: "pill llm"}, "LLM PATH"), main("No matching rule found"),
-        kv([["LLM CALLS", String(r.llm.calls), "red"], ["model", r.llm.model || "—"],
+      fill(2, "", el("span", {class: "pill llm"}, icon("i-llm"), "LLM PATH"), main("No matching rule found"),
+        kv([["LLM CALLS", String(r.llm.calls), "blue"], ["model", r.llm.model || "—"],
           ["tokens", String(r.llm.prompt_tokens + r.llm.completion_tokens)],
           ["modelled cost", "$" + r.llm.modelled_cost_usd.toFixed(6)]]),
         steps.length ? el("ol", {class: "steps"}, ...steps.map((s) =>
@@ -939,7 +1432,7 @@ form.addEventListener("submit", async (ev) => {
       const bad = r.path === "failed";
       coreSt.textContent = bad ? "FAILED" : "DUPLICATE";
       $("#roPath").className = bad ? "bad" : "warn";
-      setNode("rules", bad ? "bad" : "warn");
+      setNode("rules", bad ? "bad" : "warn"); mset("rule", "skipped");
       fill(1, bad ? "bad" : "warn", main(bad ? "Pipeline error" : "Duplicate delivery"), meta(r.error || ""));
       fill(2, bad ? "bad" : "warn", el("span", {class: "pill " + (bad ? "bad" : "warn")}, r.path.toUpperCase()), main("No decision was taken"),
         kv([["LLM CALLS", String(r.llm.calls)]]));
@@ -970,6 +1463,7 @@ form.addEventListener("submit", async (ev) => {
     setNode("ledger", "done");
     const oc = outClass(r.outcome);
     $("#roOut").textContent = r.outcome.toUpperCase(); $("#roOut").className = oc;
+    $("#mSubOut").replaceChildren(r.outcome.replace(/_/g, " ").toUpperCase() + " · ", el("a", {href: "#resolution"}, "see resolution ↓"));
     fill(4, oc === "ok" ? "" : oc, el("span", {class: "pill " + (oc || "sim")}, r.outcome.toUpperCase()), main(outcomeText(r)),
       kv([["recovered", r.amount_recovered_inr == null ? "not tracked" : inr.format(r.amount_recovered_inr)], ["money moved", r.money_moved ? "yes" : "no"], ["latency", r.latency_ms.toFixed(1) + " ms"]]),
       r.error && r.path !== "failed" ? meta(r.error) : null,
@@ -980,24 +1474,26 @@ form.addEventListener("submit", async (ev) => {
     if (r.trajectory) {
       fill(5, "", main(`Trajectory #${r.trajectory.id} persisted`),
         meta(`ledger row #${r.ledger_id} · prompt ${r.trajectory.prompt_id} · ${r.trajectory.steps.length} steps`),
-        meta("Recorded for future distillation: trajectories are what the distiller clusters into candidate rules."));
+        meta("This is the kind of record the distiller clusters into candidate rules. Playground runs are not distilled automatically."));
     } else {
       fill(5, "", main(`Ledger row #${r.ledger_id} recorded`),
         meta(r.path === "deterministic" ? "No trajectory: the rule decided, so there is no LLM behavior to learn from." : "No trajectory for this event."));
     }
     coreSt.textContent = r.path === "deterministic" ? "RULE · 0 LLM" : r.path === "llm" ? `LLM · ${r.llm.calls} CALLS` : r.path.toUpperCase();
     $("#traceTag").textContent = "ledger #" + r.ledger_id;
+    renderResolution(r);
 
     const tr = $("#thisRun");
     tr.textContent = r.path === "deterministic"
-      ? `This run: a validated rule (${r.rule.key}) already covered ${e.failure_reason}, so the LLM was not called. The action went through the guardrails and the result is in ledger row #${r.ledger_id}.`
+      ? `This run: a validated rule (${r.rule.key}) already covered ${e.failure_reason}, so the LLM was not called. The guarded executor answered "${r.executor.status || "not invoked"}" and the result is in ledger row #${r.ledger_id}.`
       : r.path === "llm"
       ? `This run: no rule covered ${e.failure_reason}, so the LLM handled it in ${r.llm.calls} calls. Its trajectory (#${r.trajectory ? r.trajectory.id : "—"}) is the kind of record that can later be distilled into a rule.`
       : `This run was recorded as ${r.path}; no decision was taken.`;
     tr.hidden = false;
     $("#dRun").textContent = r.path === "llm"
-      ? `This run took the LLM path. Trajectory #${r.trajectory ? r.trajectory.id : "—"} is the raw material for distillation.`
-      : r.path === "deterministic" ? `This run took the rule path: ${r.rule.key}, 0 LLM calls.` : $("#dRun").textContent;
+      ? `Your run took the LLM path: trajectory #${r.trajectory ? r.trajectory.id : "—"} is this kind of raw material. Playground runs are not distilled automatically; the rule shown comes from the offline evaluation.`
+      : r.path === "deterministic" ? `Your run took the rule path: ${r.rule.key}, 0 LLM calls. That is step 3 in action.` : $("#dRun").textContent;
+    loadActivity();
   } finally {
     $("#corePanel").classList.remove("busy"); svg.classList.remove("core-busy");
     running = false; btn.disabled = false;
@@ -1006,7 +1502,7 @@ form.addEventListener("submit", async (ev) => {
 
 $("#reset").addEventListener("click", () => {
   if (running) return;
-  resetCore(); freshId();
+  resetCore(); freshId(); resetResolution();
   $("#fAmt").value = "1000"; $("#fCust").value = ""; $("#fReason").value = "insufficient_funds";
   errEl.textContent = "";
   $("#steps").hidden = true; $("#traceEmpty").hidden = false; $("#traceTag").textContent = "idle";
@@ -1014,6 +1510,7 @@ $("#reset").addEventListener("click", () => {
 });
 
 loadOverview();
+loadActivity();
 })();
 </script>
 </body>

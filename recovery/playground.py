@@ -48,7 +48,7 @@ from recovery import distiller
 from recovery.dashboard import _live_rules, _precondition, load_snapshot
 from recovery.db import session_scope
 from recovery.ledger import LedgerRepository
-from recovery.models import InternalEvent
+from recovery.models import InternalEvent, LedgerEntry
 from recovery.trajectory_store import TrajectoryStore
 
 router = APIRouter()
@@ -288,8 +288,41 @@ def overview(request: Request) -> dict[str, Any]:
             "live_auto_distillation": False,
         },
         "evaluation": evaluation,
+        "failure_reasons": [reason.value for reason in FailureReason],
         "disclaimer": DISCLAIMER,
     }
+
+
+@router.get("/playground/api/activity")
+def activity(limit: int = 8) -> dict[str, Any]:
+    """The most recent playground runs, exactly as the ledger recorded them."""
+    limit = max(1, min(limit, 25))
+    with session_scope() as session:
+        rows = (
+            session.query(LedgerEntry)
+            .filter(LedgerEntry.provider == DEMO_PROVIDER)
+            .order_by(LedgerEntry.id.desc())
+            .limit(limit)
+            .all()
+        )
+        runs = [
+            {
+                "ledger_id": row.id,
+                "recorded_at": (
+                    row.created_at.replace(tzinfo=timezone.utc)
+                    if row.created_at.tzinfo is None
+                    else row.created_at
+                ).isoformat(),
+                "failure_reason": row.failure_reason,
+                "path": row.path,
+                "llm_calls": row.tool_calls,
+                "action": row.action,
+                "execution_status": row.execution_status,
+                "outcome": row.outcome,
+            }
+            for row in rows
+        ]
+    return {"mode": "simulation", "runs": runs}
 
 
 @router.post("/playground/api/run")
